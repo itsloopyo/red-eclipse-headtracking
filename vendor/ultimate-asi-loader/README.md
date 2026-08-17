@@ -1,6 +1,6 @@
 ﻿# Ultimate ASI Loader (vendored)
 
-Bundled copy of Ultimate ASI Loader for Witcher 3, the install-time source of truth.
+Bundled copy of Ultimate ASI Loader for Red Eclipse, the install-time source of truth.
 Refresh manually with `pixi run update-deps`, then commit.
 
 ## Snapshot
@@ -12,4 +12,5 @@ Refresh manually with `pixi run update-deps`, then commit.
 - Fetched at: 2026-08-03T20:22:23.7032544+01:00
 
 `dinput8.dll` is extracted from the upstream zip untouched. install.cmd copies it
-into the W3 exe dir as `dinput8.dll` (W3 imports DINPUT8.dll, so this is the proxy slot).
+to `bin/amd64/winmm.dll` (redeclipse.exe imports winmm.dll, so that is the proxy
+slot it loads ASI plugins through).
