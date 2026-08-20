@@ -74,13 +74,16 @@ UDP on that port for private networks.
 
 | Action | Key | Chord |
 |--------|-----|-------|
-| Recenter | `Home` | `Ctrl+Shift+T` |
 | Toggle tracking | `End` | `Ctrl+Shift+Y` |
 | Cycle tracking mode (6DOF / rotation only / position only) | `Page Up` | `Ctrl+Shift+G` |
 | Toggle yaw mode (horizon-locked / camera-local) | `Page Down` | `Ctrl+Shift+H` |
 
 The chords exist for keyboards without a nav cluster; both sets are always
 active.
+
+There is no recentre key. Your tracker app owns the centre: use its own control
+(opentrack's Center bind, the CENTER button in Headcam, SteamVR's reset) and the
+mod applies whatever pose it receives.
 
 ## Configuration
 
@@ -95,7 +98,8 @@ active.
 | `Sensitivity.InvertYaw` | `true` | Matches the tracker's sign to the engine's |
 | `Sensitivity.InvertPitch` | `false` | |
 | `Sensitivity.InvertRoll` | `true` | Matches the tracker's sign to the engine's |
-| `Smoothing.Smoothing` | `0.0` | A 0.15 floor is applied internally |
+| `Smoothing.LocalSmoothing` | `0.0` | Tracker on this machine (loopback). 0 = none, 1 = heavy |
+| `Smoothing.RemoteSmoothing` | `0.15` | Tracker on a remote network device (e.g. a phone) |
 | `Smoothing.DeadzoneDeg` | `0.0` | |
 | `Position.Enabled` | `true` | |
 | `Position.SensitivityX/Y/Z` | `1.0` | |
@@ -103,9 +107,13 @@ active.
 | `Position.LimitY` | `0.20` | Metres, symmetric |
 | `Position.LimitZ` | `0.40` | Metres forward |
 | `Position.LimitZBack` | `0.10` | Metres back |
-| `Position.Smoothing` | `0.15` | |
 | `Position.PositionScale` | `8.0` | World units per metre - Cube's world is 8 to the metre |
 | `Hotkeys.*` | see table above | Virtual-key codes in hex |
+
+Smoothing is picked automatically per connection from the tracker's source
+address: `LocalSmoothing` for a tracker running on this machine, `RemoteSmoothing`
+for a device on the network. Both cover rotation and position, and both accept
+0.0 to 1.0.
 
 If an axis moves the wrong way, flip the matching `Invert*` value.
 
@@ -113,7 +121,10 @@ If an axis moves the wrong way, flip the matching `Invert*` value.
 
 **Nothing happens.** Read `bin\amd64\RedEclipseHeadTracking.log`. A working
 session logs `Camera hooks installed`, then `OpenTrack: receiving data`, then
-`Head tracking engaged` the first time the view actually moves.
+`Head tracking engaged` the first time the view actually moves. The log is
+written fresh every launch; the launch before it is kept as
+`RedEclipseHeadTracking.prev.log`, which is the one to send if the game
+crashed and you relaunched.
 
 **The log says it stayed dormant.** The mod could not read Red Eclipse's debug
 symbols. It needs `redeclipse_windows_amd64.pdb` in the game's root folder,
@@ -129,6 +140,9 @@ matches, the tracker is actually running, and the firewall allows UDP 4242.
 
 **Tracking does not move the view in menus.** That is deliberate - tracking is
 suppressed whenever a menu, the console or the Steam overlay has input.
+
+**The view sits off to one side.** Centre it in your tracker app. The mod has no
+centre of its own; it applies the pose the tracker sends.
 
 ## Updating and uninstalling
 

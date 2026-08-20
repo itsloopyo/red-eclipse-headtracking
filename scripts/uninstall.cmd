@@ -25,7 +25,7 @@
 :: --- CONFIG BLOCK ---
 set "GAME_ID=red-eclipse"
 set "MOD_DISPLAY_NAME=Red Eclipse Head Tracking"
-set "MOD_DLLS=RedEclipseHeadTracking.asi RedEclipseHeadTracking.log"
+set "MOD_DLLS=RedEclipseHeadTracking.asi RedEclipseHeadTracking.log RedEclipseHeadTracking.prev.log"
 set "MOD_INTERNAL_NAME=RedEclipseHeadTracking"
 set "STATE_FILE=.headtracking-state.json"
 set "FRAMEWORK_TYPE=ASILoader"

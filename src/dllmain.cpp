@@ -89,7 +89,13 @@ unsigned __stdcall InitThread(void*) {
         }
     }
 
-    Log::Open(GetModulePathW("RedEclipseHeadTracking.log"));
+    const std::wstring logPath = GetModulePathW("RedEclipseHeadTracking.log");
+    // Keep one previous generation. The crash handler below writes its report
+    // into this log, and the user relaunches before sending it - a plain
+    // truncate would erase the very report we installed the handler for.
+    MoveFileExW(logPath.c_str(), GetModulePathW("RedEclipseHeadTracking.prev.log").c_str(),
+                MOVEFILE_REPLACE_EXISTING);
+    Log::Open(logPath);
     cameraunlock::diagnostics::InstallCrashHandler();
 
     Log::Line("%s v%s attached to %s", kModName, kModVersion, kGameExe);
@@ -101,9 +107,10 @@ unsigned __stdcall InitThread(void*) {
         Log::Line("ERROR: Config load failed");
         return 1;
     }
-    Log::Line("Config: port=%u enabled=%d smoothing=%.2f sens=(%.2f,%.2f,%.2f)",
+    Log::Line("Config: port=%u enabled=%d localSmoothing=%.2f remoteSmoothing=%.2f sens=(%.2f,%.2f,%.2f)",
               cfg.udp_port, cfg.enabled_on_startup ? 1 : 0,
-              cfg.smoothing, cfg.sens_yaw, cfg.sens_pitch, cfg.sens_roll);
+              cfg.local_smoothing, cfg.remote_smoothing,
+              cfg.sens_yaw, cfg.sens_pitch, cfg.sens_roll);
 
     // Every address the mod uses comes from the PDB Red Eclipse ships beside
     // its executable. If that resolve fails there is nothing safe to hook, so
@@ -119,7 +126,6 @@ unsigned __stdcall InitThread(void*) {
     }
 
     if (!g_hotkeys.Start(cfg,
-                         [] { g_tracking.Recenter(); },
                          [] { g_tracking.ToggleEnabled(); },
                          [] { g_tracking.CycleTrackingMode(); },
                          [] { g_tracking.ToggleYawMode(); })) {

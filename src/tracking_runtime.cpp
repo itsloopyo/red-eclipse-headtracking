@@ -2,6 +2,8 @@
 
 #include "logging.h"
 
+#include "cameraunlock/math/smoothing_utils.h"
+
 namespace RedEclipseHeadTracking {
 
 bool TrackingRuntime::Start(const Config& cfg) {
@@ -20,8 +22,6 @@ bool TrackingRuntime::Start(const Config& cfg) {
     dz.yaw = dz.pitch = dz.roll = m_cfg.deadzone_deg;
     m_session.GetProcessor().SetDeadzone(dz);
 
-    m_session.GetProcessor().SetSmoothing(m_cfg.smoothing);
-
     cameraunlock::PositionSettings pos;
     pos.sensitivity_x = m_cfg.pos_sens_x;
     pos.sensitivity_y = m_cfg.pos_sens_y;
@@ -30,11 +30,17 @@ bool TrackingRuntime::Start(const Config& cfg) {
     pos.limit_y = m_cfg.pos_limit_y;
     pos.limit_z = m_cfg.pos_limit_z;
     pos.limit_z_back = m_cfg.pos_limit_z_back;
-    pos.smoothing = m_cfg.pos_smoothing;
     pos.invert_x = m_cfg.invert_pos_x;
     pos.invert_y = m_cfg.invert_pos_y;
     pos.invert_z = m_cfg.invert_pos_z;
     m_session.GetPositionProcessor().SetSettings(pos);
+
+    // After SetSettings: the session writes both smoothing values into the
+    // position settings too, so a later settings rebuild would drop them. The
+    // session feeds the connection flag that picks between them, from the
+    // receiver's source address, every update.
+    m_session.SetLocalSmoothing(m_cfg.local_smoothing);
+    m_session.SetRemoteSmoothing(m_cfg.remote_smoothing);
 
     m_enabled.store(m_cfg.enabled_on_startup, std::memory_order_relaxed);
     m_worldSpaceYaw.store(m_cfg.world_space_yaw, std::memory_order_relaxed);
@@ -46,18 +52,29 @@ bool TrackingRuntime::Start(const Config& cfg) {
         Log::Line("UDP: %s", msg.c_str());
     });
 
-    if (!m_receiver.Start(m_cfg.udp_port)) {
+    if (m_receiver.Start(m_cfg.udp_port)) {
+        Log::Line("UDP receiver listening on port %u", m_cfg.udp_port);
+    } else {
         Log::Line("WARN: UDP receiver did not bind immediately on port %u; background retry active", m_cfg.udp_port);
     }
+
     return true;
+}
+
+void TrackingRuntime::LogConnectionChange() {
+    const bool isRemote = m_session.IsRemoteConnection();
+    if (m_remoteConnectionKnown && isRemote == m_isRemoteConnection) return;
+    m_remoteConnectionKnown = true;
+    m_isRemoteConnection = isRemote;
+
+    const double effective = cameraunlock::math::GetEffectiveSmoothing(
+        m_cfg.local_smoothing, m_cfg.remote_smoothing, isRemote);
+    Log::Line("Tracker connection is %s; smoothing=%.3f",
+              isRemote ? "remote" : "local", effective);
 }
 
 void TrackingRuntime::Stop() {
     m_receiver.Stop();
-}
-
-void TrackingRuntime::Recenter() {
-    m_recenterRequested.store(true, std::memory_order_release);
 }
 
 void TrackingRuntime::ToggleEnabled() {
@@ -96,14 +113,10 @@ FrameSample TrackingRuntime::SampleFrame() {
         return out;
     }
 
-    if (m_recenterRequested.exchange(false, std::memory_order_acq_rel)) {
-        m_session.Recenter();
-        Log::Line("Recentered");
-    }
-
     if (!m_session.Update(m_clock.Tick())) {
         return out;
     }
+    LogConnectionChange();
 
     out.has_rotation = m_session.GetRotation(out.yaw, out.pitch, out.roll);
     out.has_position = m_session.GetPositionOffset(out.pos_x, out.pos_y, out.pos_z);

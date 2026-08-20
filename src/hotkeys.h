@@ -12,8 +12,8 @@ class Hotkeys {
 public:
     using Action = std::function<void()>;
 
-    bool Start(const Config& cfg, Action onRecenter, Action onToggle,
-               Action onCycleMode, Action onYawMode);
+    bool Start(const Config& cfg, Action onToggle, Action onCycleMode,
+               Action onYawMode);
     void Stop();
 
 private:

@@ -15,7 +15,11 @@ struct Config {
     bool invert_pitch = false;
     bool invert_roll = true;
 
-    float smoothing = 0.0f;
+    // Smoothing is chosen per connection: local for a tracker on this machine
+    // (loopback), remote for a device on the network. Both cover rotation and
+    // position.
+    float local_smoothing = 0.0f;
+    float remote_smoothing = 0.15f;
     float deadzone_deg = 0.0f;
 
     bool aim_decoupling = true;
@@ -33,7 +37,6 @@ struct Config {
     float pos_limit_y = 0.20f;
     float pos_limit_z = 0.40f;
     float pos_limit_z_back = 0.10f;
-    float pos_smoothing = 0.15f;
     bool invert_pos_x = false;
     bool invert_pos_y = false;
     bool invert_pos_z = false;
@@ -41,11 +44,9 @@ struct Config {
     // metre - the engine's own distance readout divides by 8 to print metres.
     float position_scale = 8.0f;
 
-    int vk_recenter = 0x24;    // VK_HOME
     int vk_toggle = 0x23;      // VK_END
     int vk_cycle_mode = 0x21;  // VK_PRIOR (Page Up)
     int vk_yaw_mode = 0x22;    // VK_NEXT (Page Down)
-    bool chord_recenter = true;
     bool chord_toggle = true;
     bool chord_cycle_mode = true;
     bool chord_yaw_mode = true;

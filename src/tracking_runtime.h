@@ -34,7 +34,6 @@ public:
     // Reports whether the UDP receiver is currently observing packets.
     bool IsReceiving() const { return m_receiver.IsReceiving(); }
 
-    void Recenter();
     void ToggleEnabled();
     void CycleTrackingMode();
     void ToggleYawMode();
@@ -42,16 +41,28 @@ public:
     bool IsWorldSpaceYaw() const { return m_worldSpaceYaw.load(std::memory_order_relaxed); }
 
 private:
+    // Logs which smoothing parameter is in force when the session switches
+    // between a local and a remote tracker. The session does the selection.
+    void LogConnectionChange();
+
     static constexpr float kMaxFrameDtSec = 0.25f;
 
     Config m_cfg{};
     cameraunlock::UdpReceiver m_receiver;
     cameraunlock::HeadTrackingSession<cameraunlock::UdpReceiver> m_session;
+    // Without IsRemoteConnection() on the receiver the session silently falls
+    // back to LocalSmoothing forever, with nothing at the call site to show it.
+    static_assert(decltype(m_session)::kHasRemoteConnection,
+                  "receiver must expose IsRemoteConnection() or remote smoothing never applies");
     cameraunlock::time::FrameClock m_clock{kMaxFrameDtSec};
+
+    bool m_isRemoteConnection = false;
+    // Tri-state: false/false is indistinguishable from a local tracker, so a
+    // plain equality check never reports the (common) local case at all.
+    bool m_remoteConnectionKnown = false;
 
     std::atomic<bool> m_enabled{false};
     std::atomic<bool> m_worldSpaceYaw{true};
-    std::atomic<bool> m_recenterRequested{false};
 };
 
 }  // namespace RedEclipseHeadTracking

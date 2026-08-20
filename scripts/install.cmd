@@ -24,7 +24,7 @@ set "MOD_VERSION=0.2.0"
 set "STATE_FILE=.headtracking-state.json"
 set "FRAMEWORK_TYPE=ASILoader"
 set "ASI_LOADER_NAME=winmm.dll"
-set "MOD_CONTROLS=Controls: Home or Ctrl+Shift+T recenter, End or Ctrl+Shift+Y toggle,&echo Page Up or Ctrl+Shift+G cycle tracking mode, Page Down or Ctrl+Shift+H yaw mode."
+set "MOD_CONTROLS=Controls: End or Ctrl+Shift+Y toggle,&echo Page Up or Ctrl+Shift+G cycle tracking mode, Page Down or Ctrl+Shift+H yaw mode."
 :: RedEclipseHeadTracking.ini is deliberately absent from MOD_DLLS: the mod
 :: writes it on first run and it holds the user's settings, so uninstall must
 :: leave it alone.
