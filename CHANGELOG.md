@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.0] - 2026-08-20
+
+### Added
+
+- drop the recenter hotkey and split smoothing into local and remote
+
 ## [Unreleased]
 
 ### Changed

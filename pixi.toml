@@ -1,6 +1,6 @@
 [workspace]
 name = "red-eclipse-head-tracking"
-version = "0.2.0"
+version = "0.3.0"
 description = "Head tracking mod for Red Eclipse using OpenTrack"
 license = "MIT"
 channels = ["conda-forge"]
