@@ -8,7 +8,32 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Restored the MinHook licence file at `extern/minhook/LICENSE.txt` to the
+  verbatim upstream text. Both BSD-2-Clause blocks covering Vyacheslav Patkov's
+  Hacker Disassembler Engine had been cut down to a summary line, dropping the
+  conditions and the disclaimer that the licence requires a source
+  redistribution to retain.
+- The Nexus ZIP now carries `LICENSE`, `THIRD-PARTY-NOTICES.md` and the
+  licences of the components compiled into the `.asi`. It previously shipped
+  the binary alone, which met neither MinHook's BSD-2-Clause terms nor the MIT
+  terms of cameraunlock-core.
+- The packager now fails instead of silently skipping a licence or notice file
+  it cannot find, in either ZIP and beside the vendored loader.
+
 ### Changed
+
+- THIRD-PARTY-NOTICES now records MinHook as v1.3.4, verified by hashing the
+  committed tree against upstream, in place of an unfilled placeholder.
+- THIRD-PARTY-NOTICES now states Red Eclipse's own licensing accurately: free
+  and open source, zlib for the engine and game source, CC-BY-SA 4.0 or later
+  for the content, with the correct copyright holders and the Cube Engine 2 and
+  Tesseract lineage. It previously described the game as requiring a purchase
+  and credited work to reverse engineering that was never done, since the mod
+  resolves the engine's public symbol names from the PDB the game itself ships.
+- Both the README and the notices now acknowledge the Red Eclipse Mark Policy
+  and state that this mod is unofficial and unaffiliated.
 
 - Removed the in-game recentre control. Your tracker app owns the centre now:
   centre it there (opentrack's Center bind, the CENTER button in Headcam,

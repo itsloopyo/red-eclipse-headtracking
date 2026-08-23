@@ -14,6 +14,27 @@ $projectDir = Split-Path -Parent $scriptDir
 
 Import-Module (Join-Path $projectDir 'cameraunlock-core/powershell/ReleaseWorkflow.psm1') -Force
 
+function Copy-LicenseBundle {
+    param(
+        [Parameter(Mandatory)][string]$StagingDir,
+        [Parameter(Mandatory)][string]$ProjectDir
+    )
+    $licenseDir = Join-Path $StagingDir 'licenses'
+    New-Item -ItemType Directory -Path $licenseDir -Force | Out-Null
+    $bundle = @{
+        'cameraunlock-core-LICENSE.txt' = Join-Path $ProjectDir 'cameraunlock-core/LICENSE'
+        'minhook-LICENSE.txt'           = Join-Path $ProjectDir 'extern/minhook/LICENSE.txt'
+    }
+    foreach ($name in $bundle.Keys) {
+        $src = $bundle[$name]
+        if (-not (Test-Path $src)) {
+            throw "Licence for a component compiled into the mod is missing: $src"
+        }
+        Copy-Item $src -Destination (Join-Path $licenseDir $name) -Force
+        Write-Host "  licenses/$name" -ForegroundColor Green
+    }
+}
+
 $cmakeLists = Get-Content (Join-Path $projectDir 'CMakeLists.txt') -Raw
 if ($cmakeLists -notmatch 'project\(RedEclipseHeadTracking VERSION (\d+\.\d+\.\d+)') {
     throw "Could not parse version from CMakeLists.txt"
@@ -79,16 +100,29 @@ Write-Host "  plugins/$modName.asi" -ForegroundColor Green
 # at a file that was not in the package.
 $ghVendorDir = Join-Path $ghStaging 'vendor/ultimate-asi-loader'
 New-Item -ItemType Directory -Path $ghVendorDir -Force | Out-Null
+# The loader binary is redistributed here, so its MIT notice travels with it.
+# A Test-Path guard would turn that compliance failure into a green build.
 foreach ($vendorFile in @('dinput8.dll', 'LICENSE', 'README.md')) {
     $src = Join-Path $vendorAsiDir $vendorFile
-    if (Test-Path $src) { Copy-Item $src -Destination $ghVendorDir -Force }
+    if (-not (Test-Path $src)) {
+        throw "Vendored loader file missing: vendor/ultimate-asi-loader/$vendorFile"
+    }
+    Copy-Item $src -Destination $ghVendorDir -Force
 }
-Write-Host '  vendor/ultimate-asi-loader/dinput8.dll' -ForegroundColor Green
+Write-Host '  vendor/ultimate-asi-loader/dinput8.dll + LICENSE' -ForegroundColor Green
 
 foreach ($doc in @('README.md', 'LICENSE', 'CHANGELOG.md', 'THIRD-PARTY-NOTICES.md')) {
     $p = Join-Path $projectDir $doc
-    if (Test-Path $p) { Copy-Item -Path $p -Destination $ghStaging -Force }
+    if (-not (Test-Path $p)) {
+        throw "Required document not found: $doc. Every published ZIP is a binary distribution and must carry its notices."
+    }
+    Copy-Item -Path $p -Destination $ghStaging -Force
 }
+
+# MinHook (BSD-2-Clause) and cameraunlock-core (MIT, a different copyright
+# holder from this mod's own LICENSE) are both compiled into the .asi, so their
+# notices have to accompany the binary in every ZIP that carries it.
+Copy-LicenseBundle -StagingDir $ghStaging -ProjectDir $projectDir
 
 # Canonical launcher manifest the launcher ingests to deploy the package.
 # Stamp mod_info.version from the build so the shipped manifest can never
@@ -136,6 +170,18 @@ Copy-Item $asiPath -Destination $nexusGameDir -Force
 
 $nexusZip = Join-Path $releaseDir "$modName-v$version-nexus.zip"
 if (Test-Path $nexusZip) { Remove-Item $nexusZip -Force }
+# The Nexus ZIP is a binary distribution too: the licences of everything
+# compiled into or bundled with the payload require their notices to travel
+# with it, so LICENSE and THIRD-PARTY-NOTICES.md ship at its root.
+foreach ($noticeDoc in @('LICENSE', 'THIRD-PARTY-NOTICES.md', 'README.md')) {
+    $noticeSrc = Join-Path $projectDir $noticeDoc
+    if (-not (Test-Path $noticeSrc)) {
+        throw "Required notice file not found: $noticeDoc. Every published ZIP is a binary distribution and must carry it."
+    }
+    Copy-Item $noticeSrc -Destination $nexusStaging -Force
+    Write-Host "  $noticeDoc" -ForegroundColor Green
+}
+Copy-LicenseBundle -StagingDir $nexusStaging -ProjectDir $projectDir
 Push-Location $nexusStaging
 try { Compress-Archive -Path '.\*' -DestinationPath $nexusZip -Force } finally { Pop-Location }
 Remove-Item -Recurse -Force $nexusStaging

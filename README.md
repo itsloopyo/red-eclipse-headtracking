@@ -23,7 +23,9 @@ connect.
 
 ## Requirements
 
-- Red Eclipse (Steam, 64-bit build) - <https://store.steampowered.com/app/967460/>
+- Red Eclipse, 64-bit Windows build. The game is free and open source: get it
+  from <https://www.redeclipse.net> or free on Steam,
+  <https://store.steampowered.com/app/967460/>
 - Windows 10 or 11, 64-bit
 - A head tracker that speaks the OpenTrack UDP protocol: OpenTrack itself with a
   webcam, or a phone app that sends the same packets
@@ -196,13 +198,29 @@ and 6DOF lean without a second formula that has to agree with the first.
 
 ## License
 
-MIT - see [LICENSE](LICENSE). Third-party components are listed in
+This mod is MIT - see [LICENSE](LICENSE). Third-party components, and the
+licensing of the game itself, are set out in
 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+
+It ships no game code, no game content and no part of the game's debug symbols.
+The MIT licence covers this mod only and says nothing about Red Eclipse, which
+is free and open source under its own terms: zlib for the engine and game
+source, CC-BY-SA 4.0 or later for the content.
+
+This is an unofficial, community-made mod. It is not affiliated with, endorsed
+by or sponsored by the Red Eclipse project, and it uses the name only to say
+which game it works with, as the [Red Eclipse Mark
+Policy](https://www.redeclipse.net/docs/Trademark_Policy) permits for a product
+designed to work with the game. If the project would prefer a different name or
+presentation, we will change it on request.
 
 ## Credits
 
-- **Red Eclipse Team** for Red Eclipse, and for shipping the source and symbols
-  that made this mod straightforward to build.
+- **Quinton Reeves, Lee Salzman and Sławomir Błauciak**, and the wider Red
+  Eclipse Team, for Red Eclipse, and for shipping the source and the debug
+  symbols that made this mod straightforward to build. Red Eclipse builds on
+  **Tesseract** and **Cube Engine 2** by Wouter van Oortmerssen, Lee Salzman
+  and others.
 - **ThirteenAG** for [Ultimate ASI Loader](https://github.com/ThirteenAG/Ultimate-ASI-Loader).
 - **TsudaKageyu** for [MinHook](https://github.com/TsudaKageyu/minhook).
 - **The OpenTrack project** for the tracking protocol.
