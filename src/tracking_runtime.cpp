@@ -27,7 +27,12 @@ bool TrackingRuntime::Start(const Config& cfg) {
     pos.sensitivity_y = m_cfg.pos_sens_y;
     pos.sensitivity_z = m_cfg.pos_sens_z;
     pos.limit_x = m_cfg.pos_limit_x;
+    // The clamp is [-limit_y_down, +limit_y] and limit_y_down carries its own
+    // default, so mirror the one configured vertical limit the way
+    // PositionSettings::Symmetric does. Left unset, raising LimitY widened the
+    // upward budget only and downward travel stayed pinned at 0.20m.
     pos.limit_y = m_cfg.pos_limit_y;
+    pos.limit_y_down = m_cfg.pos_limit_y;
     pos.limit_z = m_cfg.pos_limit_z;
     pos.limit_z_back = m_cfg.pos_limit_z_back;
     pos.invert_x = m_cfg.invert_pos_x;

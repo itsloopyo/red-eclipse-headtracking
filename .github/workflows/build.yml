@@ -29,43 +29,30 @@ jobs:
       - name: Setup Visual Studio environment
         uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3.0.0
 
-      - name: Configure CMake (x64)
-        shell: pwsh
-        run: |
-          Write-Host "Configuring CMake build (x64)..." -ForegroundColor Cyan
-          cmake -B build -A x64 -DHEADTRACKING_BUILD_TESTS=ON
+      # run-install: false - this workspace has zero conda dependencies (pixi is
+      # a task runner only; CMake and MSVC come from the runner image). The
+      # action's post-install `pixi list` errors on an empty environment in
+      # pixi 0.70+.
+      - name: Setup pixi
+        uses: prefix-dev/setup-pixi@5185adfbffb4bd703da3010310260805d89ebb11 # v0.9.6
+        with:
+          run-install: false
 
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "::error::CMake configuration failed"
-            exit 1
-          }
-
+      # Build, test and package through the SAME commands a developer runs
+      # locally. All build logic lives in the pixi task chain (setup ->
+      # build/build-release -> test/package); the workflow owns none, so local
+      # and CI can't drift.
       - name: Build Debug
         shell: pwsh
-        run: |
-          cmake --build build --config Debug
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "::error::Debug build failed"
-            exit 1
-          }
+        run: pixi run build
 
       - name: Build Release
         shell: pwsh
-        run: |
-          cmake --build build --config Release
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "::error::Release build failed"
-            exit 1
-          }
+        run: pixi run build-release
 
       - name: Run unit tests
         shell: pwsh
-        run: |
-          ctest --test-dir build -C Release --output-on-failure
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "::error::Unit tests failed"
-            exit 1
-          }
+        run: pixi run test
 
       - name: Verify build outputs
         shell: pwsh
@@ -91,12 +78,7 @@ jobs:
 
       - name: Package installer
         shell: pwsh
-        run: |
-          powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "::error::Packaging failed"
-            exit 1
-          }
+        run: pixi run package
 
       - name: Verify installer was produced
         shell: pwsh

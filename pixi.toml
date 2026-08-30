@@ -14,9 +14,10 @@ sync = "git submodule update --remote cameraunlock-core"
 # No -G: let CMake auto-detect the installed Visual Studio generator. Pinning
 # "Visual Studio 17 2022" broke on CI once the windows runner image moved to
 # VS 2026 (VS 17 absent); auto-detect picks whatever VS the machine has.
-setup = { cmd = """
-    powershell -Command "if (-not (Test-Path 'build')) { cmake -B build -A x64 } else { Write-Host 'Build directory exists, skipping setup' -ForegroundColor Yellow }"
-""" }
+# Configures every time rather than skipping when build/ exists: a cache written
+# before HEADTRACKING_BUILD_TESTS was set here keeps the old OFF value, and the
+# test target then silently vanishes from an otherwise green build.
+setup = "cmake -B build -A x64 -DHEADTRACKING_BUILD_TESTS=ON"
 
 # Build debug configuration.
 build = { cmd = "cmake --build build --config Debug", depends-on = ["setup"] }
@@ -29,6 +30,9 @@ install = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/deploy.ps1 R
 
 # Remove the mod from the game directory. /y keeps it prompt-free under pixi (no TTY).
 uninstall = "scripts\\uninstall.cmd /y"
+
+# Host-side unit tests (HEADTRACKING_BUILD_TESTS, enabled by setup).
+test = { cmd = "ctest --test-dir build -C Release --output-on-failure", depends-on = ["build-release"] }
 
 # Package release ZIPs (installer + nexus).
 package = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1", depends-on = ["build-release"] }
