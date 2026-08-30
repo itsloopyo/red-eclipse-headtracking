@@ -13,7 +13,7 @@ Red Eclipse.
 |-----------|---------|---------|--------------|
 | Ultimate ASI Loader | v9.7.2 | MIT | Bundled verbatim in the installer ZIP |
 | MinHook | v1.3.4 | BSD-2-Clause | Compiled into the `.asi`; licence at `licenses/minhook-LICENSE.txt` in both ZIPs |
-| cameraunlock-core | 3465659888b2270addac9de0b2a728f59a00360c | MIT | Compiled into the `.asi`; licence at `licenses/cameraunlock-core-LICENSE.txt` in both ZIPs |
+| cameraunlock-core | 0f7a63455ddeb91677c9268e88fd35833aa77359 | MIT | Compiled into the `.asi`; licence at `licenses/cameraunlock-core-LICENSE.txt` in both ZIPs |
 | OpenTrack | n/a | ISC | Not bundled; UDP protocol interoperability only |
 
 ---
@@ -168,7 +168,7 @@ own code but a different copyright holder from this mod's own LICENSE, so its
 notice ships in its own right: verbatim below, and as a file at
 `licenses/cameraunlock-core-LICENSE.txt` in both release ZIPs.
 
-- Pinned commit: `3465659888b2270addac9de0b2a728f59a00360c`
+- Pinned commit: `0f7a63455ddeb91677c9268e88fd35833aa77359`
 
 ```
 MIT License
