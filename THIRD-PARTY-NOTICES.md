@@ -13,7 +13,7 @@ Red Eclipse.
 |-----------|---------|---------|--------------|
 | Ultimate ASI Loader | v9.7.2 | MIT | Bundled verbatim in the installer ZIP |
 | MinHook | v1.3.4 | BSD-2-Clause | Compiled into the `.asi`; licence at `licenses/minhook-LICENSE.txt` in both ZIPs |
-| cameraunlock-core | fec3b4c8a6fe9c45401cf65d3d43d4f5acd22b72 | MIT | Compiled into the `.asi`; licence at `licenses/cameraunlock-core-LICENSE.txt` in both ZIPs |
+| cameraunlock-core | f441e29427b7422a584ba492dddd7788881804b0 | MIT | Compiled into the `.asi`; licence at `licenses/cameraunlock-core-LICENSE.txt` in both ZIPs |
 | OpenTrack | n/a | ISC | Not bundled; UDP protocol interoperability only |
 
 ---
@@ -168,7 +168,7 @@ own code but a different copyright holder from this mod's own LICENSE, so its
 notice ships in its own right: verbatim below, and as a file at
 `licenses/cameraunlock-core-LICENSE.txt` in both release ZIPs.
 
-- Pinned commit: `fec3b4c8a6fe9c45401cf65d3d43d4f5acd22b72`
+- Pinned commit: `f441e29427b7422a584ba492dddd7788881804b0`
 
 ```
 MIT License
@@ -216,7 +216,7 @@ by the Red Eclipse project.
 
 - Engine and game source: zlib licence.
   Red Eclipse, Copyright (C) 2009-2025 Quinton Reeves, Lee Salzman,
-  SÃ…â€šawomir BÃ…â€šauciak. Built on Tesseract, Copyright (C) 2014-2019 Wouter van
+  SÃƒâ€¦Ã¢â‚¬Å¡awomir BÃƒâ€¦Ã¢â‚¬Å¡auciak. Built on Tesseract, Copyright (C) 2014-2019 Wouter van
   Oortmerssen, Lee Salzman, Mike Dysart, Robert Pointon, Quinton Reeves and
   Benjamin Segovia; and on Cube Engine 2, Copyright (C) 2001-2019 Wouter van
   Oortmerssen, Lee Salzman, Mike Dysart, Robert Pointon and Quinton Reeves.
