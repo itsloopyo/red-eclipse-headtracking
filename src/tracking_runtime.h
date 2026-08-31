@@ -45,6 +45,12 @@ private:
     // between a local and a remote tracker. The session does the selection.
     void LogConnectionChange();
 
+    // True while the newest packet is younger than Config::data_freshness_ms. The
+    // core receiver's own IsReceiving() is fixed at 500ms, which is where the
+    // shipped default comes from; this is what makes a user-chosen window mean
+    // anything.
+    bool IsPoseFresh() const;
+
     static constexpr float kMaxFrameDtSec = 0.25f;
 
     Config m_cfg{};

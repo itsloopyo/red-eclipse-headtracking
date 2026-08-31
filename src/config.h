@@ -25,7 +25,6 @@ struct Config {
     float remote_smoothing = static_cast<float>(cameraunlock::math::kDefaultRemoteSmoothing);
     float deadzone_deg = 0.0f;
 
-    bool aim_decoupling = true;
     int data_freshness_ms = 500;
 
     // true = horizon-locked (world-space) yaw, false = camera-local yaw.

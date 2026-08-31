@@ -4,6 +4,9 @@
 
 #include "cameraunlock/math/smoothing_utils.h"
 
+#include <chrono>
+#include <cstdint>
+
 namespace RedEclipseHeadTracking {
 
 bool TrackingRuntime::Start(const Config& cfg) {
@@ -78,6 +81,16 @@ void TrackingRuntime::LogConnectionChange() {
               isRemote ? "remote" : "local", effective);
 }
 
+bool TrackingRuntime::IsPoseFresh() const {
+    const std::int64_t lastUs = m_receiver.GetLastReceiveTimestamp();
+    if (lastUs == 0) {
+        return false;
+    }
+    const std::int64_t nowUs = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    return (nowUs - lastUs) / 1000 < m_cfg.data_freshness_ms;
+}
+
 void TrackingRuntime::Stop() {
     m_receiver.Stop();
 }
@@ -114,7 +127,7 @@ FrameSample TrackingRuntime::SampleFrame() {
     if (!m_enabled.load(std::memory_order_relaxed)) {
         return out;
     }
-    if (!m_receiver.IsReceiving()) {
+    if (!IsPoseFresh()) {
         return out;
     }
 
