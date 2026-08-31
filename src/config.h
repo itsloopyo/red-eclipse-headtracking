@@ -2,6 +2,9 @@
 
 #include <cstdint>
 
+#include "cameraunlock/data/position_settings.h"
+#include "cameraunlock/math/smoothing_utils.h"
+
 namespace RedEclipseHeadTracking {
 
 struct Config {
@@ -18,8 +21,8 @@ struct Config {
     // Smoothing is chosen per connection: local for a tracker on this machine
     // (loopback), remote for a device on the network. Both cover rotation and
     // position.
-    float local_smoothing = 0.0f;
-    float remote_smoothing = 0.15f;
+    float local_smoothing = static_cast<float>(cameraunlock::math::kDefaultLocalSmoothing);
+    float remote_smoothing = static_cast<float>(cameraunlock::math::kDefaultRemoteSmoothing);
     float deadzone_deg = 0.0f;
 
     bool aim_decoupling = true;
@@ -33,10 +36,10 @@ struct Config {
     float pos_sens_x = 1.0f;
     float pos_sens_y = 1.0f;
     float pos_sens_z = 1.0f;
-    float pos_limit_x = 0.30f;
-    float pos_limit_y = 0.20f;
-    float pos_limit_z = 0.40f;
-    float pos_limit_z_back = 0.10f;
+    float pos_limit_x = cameraunlock::PositionSettings{}.limit_x;
+    float pos_limit_y = cameraunlock::PositionSettings{}.limit_y;
+    float pos_limit_z = cameraunlock::PositionSettings{}.limit_z;
+    float pos_limit_z_back = cameraunlock::PositionSettings{}.limit_z_back;
     bool invert_pos_x = false;
     bool invert_pos_y = false;
     bool invert_pos_z = false;

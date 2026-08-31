@@ -31,8 +31,8 @@ constexpr bool  kDefaultInvertYaw       = true;
 constexpr bool  kDefaultInvertRoll      = true;
 constexpr bool  kDefaultInvertPosX      = false;
 constexpr bool  kDefaultInvertPosZ      = false;
-constexpr float kDefaultLocalSmoothing  = 0.0f;
-constexpr float kDefaultRemoteSmoothing = 0.15f;
+constexpr float kDefaultLocalSmoothing  = static_cast<float>(cameraunlock::math::kDefaultLocalSmoothing);
+constexpr float kDefaultRemoteSmoothing = static_cast<float>(cameraunlock::math::kDefaultRemoteSmoothing);
 constexpr float kDefaultDeadzoneDeg     = 0.0f;
 constexpr int   kDefaultVkToggle        = 0x23; // VK_END
 constexpr int   kDefaultVkCycleMode     = 0x21; // VK_PRIOR (Page Up)
@@ -41,10 +41,10 @@ constexpr bool  kDefaultChord           = true;
 
 constexpr bool  kDefaultPositionEnabled = true;
 constexpr float kDefaultPosSens         = 1.0f;
-constexpr float kDefaultPosLimitX       = 0.30f;
-constexpr float kDefaultPosLimitY       = 0.20f;
-constexpr float kDefaultPosLimitZ       = 0.40f;
-constexpr float kDefaultPosLimitZBack   = 0.10f;
+constexpr float kDefaultPosLimitX       = cameraunlock::PositionSettings{}.limit_x;
+constexpr float kDefaultPosLimitY       = cameraunlock::PositionSettings{}.limit_y;
+constexpr float kDefaultPosLimitZ       = cameraunlock::PositionSettings{}.limit_z;
+constexpr float kDefaultPosLimitZBack   = cameraunlock::PositionSettings{}.limit_z_back;
 constexpr float kDefaultPositionScale   = 8.0f;
 
 bool FileExists(const char* path) {
