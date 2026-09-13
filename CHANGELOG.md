@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.1] - 2026-09-13
+
+### Added
+
+- add ADS mode cycle with zoom compensation and hit-marker placement
+
+### Fixed
+
+- mirror the vertical limit and restore the MIT grant
+- gate per-frame sampling on DataFreshnessMs, drop dead AimDecoupling field
+
 ## [0.3.0] - 2026-08-20
 
 ### Added
