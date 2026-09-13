@@ -111,6 +111,7 @@ unsigned __stdcall InitThread(void*) {
               cfg.udp_port, cfg.enabled_on_startup ? 1 : 0,
               cfg.local_smoothing, cfg.remote_smoothing,
               cfg.sens_yaw, cfg.sens_pitch, cfg.sens_roll);
+    Log::Line("%s", cameraunlock::ads::AdsModeToast(cfg.ads_mode));
 
     // Every address the mod uses comes from the PDB Red Eclipse ships beside
     // its executable. If that resolve fails there is nothing safe to hook, so
@@ -128,7 +129,8 @@ unsigned __stdcall InitThread(void*) {
     if (!g_hotkeys.Start(cfg,
                          [] { g_tracking.ToggleEnabled(); },
                          [] { g_tracking.CycleTrackingMode(); },
-                         [] { g_tracking.ToggleYawMode(); })) {
+                         [] { g_tracking.ToggleYawMode(); },
+                         [] { g_tracking.RequestAdsCycle(); })) {
         Log::Line("ERROR: Hotkeys start failed");
         g_tracking.Stop();
         return 1;

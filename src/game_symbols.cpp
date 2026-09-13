@@ -5,6 +5,7 @@
 #include <dbghelp.h>
 
 #include <string>
+#include <vector>
 
 namespace RedEclipseHeadTracking {
 
@@ -55,6 +56,52 @@ std::wstring ParentDirectory(const std::wstring& path) {
     return path.substr(0, slash);
 }
 
+bool ResolveRenderShaderOffset(DWORD64 pdbBase, DWORD& offset) {
+    SYMBOL_INFOW symbol{};
+    symbol.SizeOfStruct = sizeof(symbol);
+    if (!SymGetTypeFromNameW(kSymOwner, pdbBase, L"UI::Render", &symbol)) {
+        Log::Line("ERROR: UI::Render type lookup failed (win32 %lu)", GetLastError());
+        return false;
+    }
+    DWORD typeIndex = symbol.TypeIndex, tag = symbol.Tag;
+    constexpr DWORD kSymTagTypedef = 17;
+    while (tag == kSymTagTypedef) {
+        if (!SymGetTypeInfo(kSymOwner, pdbBase, typeIndex, TI_GET_TYPEID, &typeIndex) ||
+            !SymGetTypeInfo(kSymOwner, pdbBase, typeIndex, TI_GET_SYMTAG, &tag)) {
+            Log::Line("ERROR: UI::Render type alias lookup failed (win32 %lu)", GetLastError());
+            return false;
+        }
+    }
+    DWORD count = 0;
+    if (!SymGetTypeInfo(kSymOwner, pdbBase, typeIndex, TI_GET_CHILDRENCOUNT, &count)) {
+        Log::Line("ERROR: UI::Render child count failed (win32 %lu)", GetLastError());
+        return false;
+    }
+    std::vector<ULONG> storage(sizeof(TI_FINDCHILDREN_PARAMS) / sizeof(ULONG) + count);
+    auto* children = reinterpret_cast<TI_FINDCHILDREN_PARAMS*>(storage.data());
+    children->Count = count;
+    if (!SymGetTypeInfo(kSymOwner, pdbBase, typeIndex, TI_FINDCHILDREN, children)) {
+        Log::Line("ERROR: UI::Render member lookup failed (win32 %lu)", GetLastError());
+        return false;
+    }
+    for (DWORD i = 0; i < count; ++i) {
+        wchar_t* name = nullptr;
+        // Base-class records have no member name.
+        if (!SymGetTypeInfo(kSymOwner, pdbBase, children->ChildId[i], TI_GET_SYMNAME, &name)) continue;
+        const bool matches = name && std::wstring(name) == L"shdr";
+        LocalFree(name);
+        if (!matches) continue;
+        if (!SymGetTypeInfo(kSymOwner, pdbBase, children->ChildId[i], TI_GET_OFFSET, &offset)) {
+            Log::Line("ERROR: UI::Render::shdr offset failed (win32 %lu)", GetLastError());
+            return false;
+        }
+        Log::Line("Symbols: UI::Render::shdr offset 0x%lX", offset);
+        return true;
+    }
+    Log::Line("ERROR: UI::Render::shdr absent from PDB");
+    return false;
+}
+
 }  // namespace
 
 bool GameSymbols::Resolve(HMODULE gameModule) {
@@ -98,12 +145,26 @@ bool GameSymbols::Resolve(HMODULE gameModule) {
         uintptr_t rvaSetCamMatrix = 0, rvaRecomputeCamera = 0, rvaDrawPointers = 0, rvaHasInput = 0;
         uintptr_t rvaCamera1 = 0, rvaCamera = 0, rvaCamMatrix = 0, rvaCamProjMatrix = 0;
         uintptr_t rvaCamDir = 0, rvaCamRight = 0, rvaCamUp = 0, rvaWorldPos = 0;
+        uintptr_t rvaInZoom = 0, rvaFov = 0, rvaZooming = 0, rvaCurFov = 0;
+        uintptr_t rvaDrawUiRender = 0, rvaLookupShader = 0, rvaHudMatrix = 0;
+        uintptr_t rvaVisorEnabled = 0, rvaVisorCoords = 0, rvaVisorSurface = 0, rvaRenderVisor = 0;
 
         const Entry entries[] = {
             {L"setcammatrix", &rvaSetCamMatrix},
             {L"game::recomputecamera", &rvaRecomputeCamera},
             {L"hud::drawpointers", &rvaDrawPointers},
             {L"hud::hasinput", &rvaHasInput},
+            {L"game::inzoom", &rvaInZoom},
+            {L"game::fov", &rvaFov},
+            {L"game::zooming", &rvaZooming},
+            {L"curfov", &rvaCurFov},
+            {L"UI::Render::draw", &rvaDrawUiRender},
+            {L"lookupshaderbyname", &rvaLookupShader},
+            {L"hudmatrix", &rvaHudMatrix},
+            {L"VisorSurface::check", &rvaVisorEnabled},
+            {L"VisorSurface::coords", &rvaVisorCoords},
+            {L"visorsurf", &rvaVisorSurface},
+            {L"rendervisor", &rvaRenderVisor},
             {L"camera1", &rvaCamera1},
             {L"camera", &rvaCamera},
             {L"cammatrix", &rvaCamMatrix},
@@ -122,6 +183,7 @@ bool GameSymbols::Resolve(HMODULE gameModule) {
             }
         }
 
+        if (ok) ok = ResolveRenderShaderOffset(pdbBase, renderShaderOffset);
         if (ok) {
             uintptr_t moduleBase = reinterpret_cast<uintptr_t>(gameModule);
             auto at = [moduleBase](uintptr_t rva) { return reinterpret_cast<void*>(moduleBase + rva); };
@@ -130,6 +192,17 @@ bool GameSymbols::Resolve(HMODULE gameModule) {
             recomputecamera = reinterpret_cast<void (*)()>(at(rvaRecomputeCamera));
             drawpointers = reinterpret_cast<void (*)(int, int, float, float, float)>(at(rvaDrawPointers));
             hasinput = reinterpret_cast<int (*)(bool, bool)>(at(rvaHasInput));
+            inzoom = reinterpret_cast<bool (*)()>(at(rvaInZoom));
+            fov = reinterpret_cast<int (*)()>(at(rvaFov));
+            zooming = static_cast<bool*>(at(rvaZooming));
+            curfov = static_cast<float*>(at(rvaCurFov));
+            drawUiRender = reinterpret_cast<void (*)(void*, float, float)>(at(rvaDrawUiRender));
+            lookupShader = reinterpret_cast<void* (*)(const char*)>(at(rvaLookupShader));
+            hudmatrix = static_cast<EngMat4*>(at(rvaHudMatrix));
+            visorEnabled = reinterpret_cast<bool (*)(void*)>(at(rvaVisorEnabled));
+            visorCoords = reinterpret_cast<void (*)(void*, float, float, float&, float&, bool)>(at(rvaVisorCoords));
+            visorSurface = at(rvaVisorSurface);
+            renderVisor = static_cast<int*>(at(rvaRenderVisor));
 
             camera1 = static_cast<void**>(at(rvaCamera1));
             camera = at(rvaCamera);

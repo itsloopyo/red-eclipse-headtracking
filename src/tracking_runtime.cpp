@@ -6,6 +6,8 @@
 
 #include <chrono>
 #include <cstdint>
+#include <system_error>
+#include <windows.h>
 
 namespace RedEclipseHeadTracking {
 
@@ -119,6 +121,25 @@ void TrackingRuntime::ToggleYawMode() {
     bool prev = m_worldSpaceYaw.load(std::memory_order_relaxed);
     m_worldSpaceYaw.store(!prev, std::memory_order_relaxed);
     Log::Line("Yaw mode: %s", !prev ? "world-space (horizon-locked)" : "camera-local");
+}
+
+bool TrackingRuntime::ApplyAdsCycle() {
+    if (!m_adsCycleRequested.exchange(false)) return false;
+    const auto next = cameraunlock::ads::NextAdsModeTwoSlot(m_cfg.ads_mode);
+    if (!WritePrivateProfileStringA("General", "AdsMode",
+            cameraunlock::ads::AdsModeValue(next), m_cfg.ini_path.c_str())) {
+        throw std::system_error(static_cast<int>(GetLastError()), std::system_category(),
+                                "Saving AdsMode");
+    }
+    m_cfg.ads_mode = next;
+    return true;
+}
+
+void TrackingRuntime::RequestAdsCycle() {
+    const auto now = GetTickCount64();
+    if (now - m_lastAdsRequestMs < 200) return;
+    m_lastAdsRequestMs = now;
+    m_adsCycleRequested.store(true);
 }
 
 FrameSample TrackingRuntime::SampleFrame() {

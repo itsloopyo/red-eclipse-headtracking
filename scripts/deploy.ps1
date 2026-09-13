@@ -62,3 +62,4 @@ Write-Host "Controls:" -ForegroundColor Cyan
 Write-Host "  End       - Toggle head tracking on/off  (Ctrl+Shift+Y)"
 Write-Host "  Page Up   - Cycle tracking mode          (Ctrl+Shift+G)"
 Write-Host "  Page Down - Toggle yaw mode              (Ctrl+Shift+H)"
+Write-Host "  Insert    - Cycle ADS mode               (Ctrl+Shift+U)"

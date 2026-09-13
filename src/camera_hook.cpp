@@ -1,6 +1,8 @@
 #include "camera_hook.h"
 
 #include "head_transform.h"
+#include "ads.h"
+#include "cameraunlock/camera/zoom_compensation.h"
 #include "logging.h"
 
 #include <MinHook.h>
@@ -12,10 +14,12 @@ namespace {
 const GameSymbols* g_symbols = nullptr;
 TrackingRuntime* g_tracking = nullptr;
 Config g_config;
+AdsState g_ads;
 
 void (*g_originalSetCamMatrix)() = nullptr;
 void (*g_originalRecomputeCamera)() = nullptr;
 void (*g_originalDrawPointers)(int, int, float, float, float) = nullptr;
+void (*g_originalDrawUiRender)(void*, float, float) = nullptr;
 
 // The view matrix exactly as the engine built it, captured every frame before
 // the head transform goes on. game::recomputecamera derives the aim point from
@@ -41,7 +45,7 @@ bool IsPlayerView() {
 // input - the same test hud::drawpointers makes before choosing a pointer. Head
 // tracking follows it: in a menu the view holds still and the mouse pointer is
 // left where the game put it.
-bool IsAiming() {
+bool HasGameplayInput() {
     return g_symbols->hasinput(false, true) == 0;
 }
 
@@ -60,24 +64,55 @@ void HookedRecomputeCamera() {
     // One tracker sample per frame, taken here because setcammatrix runs more
     // than once per frame (the halo pass reuses it).
     FrameSample sample = g_tracking->SampleFrame();
-    if ((!sample.has_rotation && !sample.has_position) || !g_hasCleanCamMatrix || !IsAiming()) {
+    static int previousChannels = 0;
+    const int channels = (sample.has_rotation ? 1 : 0) | (sample.has_position ? 2 : 0);
+    if (channels != previousChannels) g_ads.Reset();
+    previousChannels = channels;
+    const bool modeChanged = g_tracking->ApplyAdsCycle();
+    const auto mode = g_tracking->GetAdsMode();
+    if ((!sample.has_rotation && !sample.has_position) || !g_hasCleanCamMatrix || !HasGameplayInput()) {
+        g_ads.Reset();
         g_headActive = false;
+        if (modeChanged) Log::Line("%s", cameraunlock::ads::AdsModeToast(mode));
         return;
     }
 
+    const bool aiming = *g_symbols->zooming && g_symbols->inzoom();
+    AdsState::Pose absolute{sample.pitch, sample.yaw, sample.roll,
+                            sample.pos_x, sample.pos_y, sample.pos_z};
+    const auto blended = g_ads.Update(true, aiming, sample.has_rotation || sample.has_position,
+                                     mode, GetTickCount64(), absolute);
+    if (modeChanged) Log::Line("%s", cameraunlock::ads::AdsModeToast(mode));
+    const float currentFov = *g_symbols->curfov;
+    const float baseFov = static_cast<float>(g_symbols->fov());
+    constexpr float radians = 3.14159265358979323846f / 360.0f;
+    float zoom = 1.0f;
+    if (std::isfinite(currentFov) && currentFov > 0 && currentFov < 180 &&
+        baseFov > 0 && baseFov < 180) {
+        zoom = cameraunlock::camera::FovZoomFactor(std::tan(currentFov * radians),
+                                                  std::tan(baseFov * radians));
+    }
     HeadPose pose;
-    pose.yaw_deg = sample.yaw;
-    pose.pitch_deg = sample.pitch;
-    pose.roll_deg = sample.roll;
+    pose.yaw_deg = zoom == 1.0f ? blended.yaw : cameraunlock::camera::ScaleAngleForZoom(blended.yaw, zoom);
+    pose.pitch_deg = zoom == 1.0f ? blended.pitch : cameraunlock::camera::ScaleAngleForZoom(blended.pitch, zoom);
+    pose.roll_deg = blended.roll;
+    static unsigned long long lastAdsLogMs = 0;
+    const auto now = GetTickCount64();
+    if (aiming && now - lastAdsLogMs >= 1000) {
+        lastAdsLogMs = now;
+        Log::Line("ADS sample: mode=%s head=(%.2f,%.2f,%.2f) view=(%.2f,%.2f,%.2f) fov=%.2f/%.2f",
+                  cameraunlock::ads::AdsModeValue(mode), sample.yaw, sample.pitch, sample.roll,
+                  pose.yaw_deg, pose.pitch_deg, pose.roll_deg, currentFov, baseFov);
+    }
     if (sample.has_position) {
         // The tracker's x and z run opposite to Cube's camera axes. Correcting
         // it here rather than through the processor's InvertX/InvertZ keeps the
         // asymmetric Z limits pointing the way they are documented: the
         // generous LimitZ on leaning forward, the restricted LimitZBack on
         // leaning back. Those are clamped before the sample ever reaches here.
-        pose.x = -sample.pos_x * g_config.position_scale;
-        pose.y = sample.pos_y * g_config.position_scale;
-        pose.z = -sample.pos_z * g_config.position_scale;
+        pose.x = -blended.x * g_config.position_scale * zoom;
+        pose.y = blended.y * g_config.position_scale * zoom;
+        pose.z = -blended.z * g_config.position_scale * zoom;
     }
 
     g_headTransform = BuildHeadTransform(pose, g_cleanCamMatrix, g_tracking->IsWorldSpaceYaw());
@@ -109,7 +144,7 @@ void HookedSetCamMatrix() {
 }
 
 void HookedDrawPointers(int w, int h, float x, float y, float blend) {
-    if (g_headActive && IsAiming()) {
+    if (g_headActive && HasGameplayInput()) {
         // worldpos is where the clean aim ray landed; camprojmatrix is the
         // tracked view-projection the frame was rendered with. Projecting one
         // through the other puts the crosshair exactly on the spot the shot
@@ -127,6 +162,30 @@ void HookedDrawPointers(int w, int h, float x, float y, float blend) {
         y = py;
     }
     g_originalDrawPointers(w, h, x, y, blend);
+}
+
+void HookedDrawUiRender(void* widget, float x, float y) {
+    if (g_headActive && HasGameplayInput()) {
+        const auto shader = *reinterpret_cast<void**>(
+            static_cast<unsigned char*>(widget) + g_symbols->renderShaderOffset);
+        if (shader && shader == g_symbols->lookupShader("shdr_gameui_damagetick")) {
+            float aimX = 0.0f, aimY = 0.0f;
+            if (!ProjectToCursor(*g_symbols->camprojmatrix, *g_symbols->worldpos, aimX, aimY)) return;
+            // The visor shader warps this layer after UI rendering. Its cursor
+            // mapping gives the texture position that lands at the requested pixel.
+            constexpr int kVisorPass = 1;
+            if (*g_symbols->renderVisor == kVisorPass && g_symbols->visorEnabled(g_symbols->visorSurface)) {
+                g_symbols->visorCoords(g_symbols->visorSurface, aimX, aimY, aimX, aimY, true);
+            }
+            if (!OffsetHudWidget(*g_symbols->hudmatrix, aimX, aimY, x, y)) return;
+            static bool reported = false;
+            if (!reported) {
+                reported = true;
+                Log::Line("Hit-marker compensation engaged: aim=(%.3f,%.3f)", aimX, aimY);
+            }
+        }
+    }
+    g_originalDrawUiRender(widget, x, y);
 }
 
 bool CreateHook(void* target, void* detour, void** original, const char* name) {
@@ -165,7 +224,9 @@ bool InstallCameraHook(const GameSymbols& symbols, TrackingRuntime& tracking, co
         !CreateHook(reinterpret_cast<void*>(symbols.setcammatrix), &HookedSetCamMatrix,
                     reinterpret_cast<void**>(&g_originalSetCamMatrix), "setcammatrix") ||
         !CreateHook(reinterpret_cast<void*>(symbols.drawpointers), &HookedDrawPointers,
-                    reinterpret_cast<void**>(&g_originalDrawPointers), "hud::drawpointers")) {
+                    reinterpret_cast<void**>(&g_originalDrawPointers), "hud::drawpointers") ||
+        !CreateHook(reinterpret_cast<void*>(symbols.drawUiRender), &HookedDrawUiRender,
+                    reinterpret_cast<void**>(&g_originalDrawUiRender), "UI::Render::draw")) {
         MH_DisableHook(MH_ALL_HOOKS);
         MH_Uninitialize();
         return false;

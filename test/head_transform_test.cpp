@@ -383,6 +383,28 @@ void TestAimBehindTheViewIsRejected() {
     Check(!CrosshairFor(scene, pose, false, x, y), "projection rejects a point behind the camera");
 }
 
+void TestHitMarkerHudOffset() {
+    for (float aspect : {4.0f / 3.0f, 16.0f / 9.0f, 32.0f / 9.0f}) {
+        EngMat4 hud{{2.0f / aspect, 0, 0, 0}, {0, -2, 0, 0},
+                    {0, 0, -1, 0}, {-1, 1, 0, 1}};
+        float x = aspect * 0.5f, y = 0.5f;
+        Check(OffsetHudWidget(hud, 0.7f, 0.3f, x, y), "valid HUD projection");
+        CheckNear(x / aspect, 0.7f, 1e-5f, "hit marker horizontal aim at every aspect");
+        CheckNear(y, 0.3f, 1e-5f, "hit marker vertical aim");
+        const float previousX = x, previousY = y;
+        Check(OffsetHudWidget(hud, 0.5f, 0.5f, x, y), "centred aim accepted");
+        CheckNear(x, previousX, 1e-5f, "centred aim preserves widget x");
+        CheckNear(y, previousY, 1e-5f, "centred aim preserves widget y");
+    }
+    EngMat4 flipped{{2, 0, 0, 0}, {0, 2, 0, 0}, {0, 0, -1, 0}, {-1, -1, 0, 1}};
+    float x = 0.5f, y = 0.5f;
+    Check(OffsetHudWidget(flipped, 0.7f, 0.3f, x, y), "composite HUD projection");
+    CheckNear(x, 0.7f, 1e-5f, "composite x");
+    CheckNear(y, 0.7f, 1e-5f, "composite reverses y");
+    EngMat4 invalid{};
+    Check(!OffsetHudWidget(invalid, 0.7f, 0.3f, x, y), "invalid HUD draws no marker");
+}
+
 }  // namespace
 
 int main() {
@@ -397,6 +419,7 @@ int main() {
     TestLitmusWorldYawLookingDown();
     TestLitmusHorizonStaysLevelUnderWorldYaw();
     TestAimBehindTheViewIsRejected();
+    TestHitMarkerHudOffset();
 
     if (g_failures) {
         std::printf("\n%d check(s) failed\n", g_failures);

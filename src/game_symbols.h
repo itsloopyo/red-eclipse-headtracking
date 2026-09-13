@@ -22,6 +22,18 @@ struct GameSymbols {
     void (*drawpointers)(int w, int h, float x, float y, float blend) = nullptr;
     // game/hud.cpp - nonzero while a menu/console owns input.
     int (*hasinput)(bool pass, bool cursor) = nullptr;
+    bool (*inzoom)() = nullptr;
+    int (*fov)() = nullptr;
+    bool* zooming = nullptr;
+    float* curfov = nullptr;
+    void (*drawUiRender)(void* widget, float x, float y) = nullptr;
+    void* (*lookupShader)(const char* name) = nullptr;
+    EngMat4* hudmatrix = nullptr;
+    unsigned long renderShaderOffset = 0;
+    bool (*visorEnabled)(void*) = nullptr;
+    void (*visorCoords)(void*, float, float, float&, float&, bool) = nullptr;
+    void* visorSurface = nullptr;
+    int* renderVisor = nullptr;
 
     // physent *camera1 - the camera the renderer reads.
     void** camera1 = nullptr;

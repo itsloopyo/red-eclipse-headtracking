@@ -15,7 +15,7 @@ Red Eclipse.
 | injector | `f7fd18f` (inside Ultimate ASI Loader v9.7.2) | zlib | Compiled into the vendored dinput8.dll |
 | miniz | 3.0.0 (inside Ultimate ASI Loader v9.7.2) | MIT | Compiled into the vendored dinput8.dll |
 | MinHook | v1.3.4 | BSD-2-Clause | Compiled into the `.asi`; licence at `licenses/minhook-LICENSE.txt` in both ZIPs |
-| cameraunlock-core | f441e29427b7422a584ba492dddd7788881804b0 | MIT | Compiled into the `.asi`; licence at `licenses/cameraunlock-core-LICENSE.txt` in both ZIPs |
+| cameraunlock-core | ee8cc72899932c60c8fe539fcb6e18db408d1d96 | MIT | Compiled into the `.asi`; licence at `licenses/cameraunlock-core-LICENSE.txt` in both ZIPs |
 | OpenTrack | n/a | ISC | Not bundled; UDP protocol interoperability only |
 
 ---
@@ -260,7 +260,7 @@ own code but a different copyright holder from this mod's own LICENSE, so its
 notice ships in its own right: verbatim below, and as a file at
 `licenses/cameraunlock-core-LICENSE.txt` in both release ZIPs.
 
-- Pinned commit: `f441e29427b7422a584ba492dddd7788881804b0`
+- Pinned commit: `ee8cc72899932c60c8fe539fcb6e18db408d1d96`
 
 ```
 MIT License
@@ -308,7 +308,7 @@ by the Red Eclipse project.
 
 - Engine and game source: zlib licence.
   Red Eclipse, Copyright (C) 2009-2025 Quinton Reeves, Lee Salzman,
-  SÃƒâ€¦Ã¢â‚¬Å¡awomir BÃƒâ€¦Ã¢â‚¬Å¡auciak. Built on Tesseract, Copyright (C) 2014-2019 Wouter van
+  Sławomir Błauciak. Built on Tesseract, Copyright (C) 2014-2019 Wouter van
   Oortmerssen, Lee Salzman, Mike Dysart, Robert Pointon, Quinton Reeves and
   Benjamin Segovia; and on Cube Engine 2, Copyright (C) 2001-2019 Wouter van
   Oortmerssen, Lee Salzman, Mike Dysart, Robert Pointon and Quinton Reeves.
@@ -337,6 +337,11 @@ disassembly, no decompiled function bodies and no byte signatures of game code.
 `src/engine_types.h` declares structures whose memory layout matches the
 engine's so the mod can read and write those globals in place; it is a layout
 description written from the public source, not a copy of it.
+
+The published `engine/ui.cpp`, `engine/renderfx.cpp` and `config/ui/game/hud/hud.cfg`
+identify `UI::Render::shdr`, the damage-tick shader, and the visor coordinate
+mapping used for hit-marker placement. The member offset comes from the installed
+game's PDB; the mod calls the engine's visor mapping function at runtime.
 
 ### The Red Eclipse Mark Policy
 

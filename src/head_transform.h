@@ -137,4 +137,15 @@ inline bool ProjectToCursor(const EngMat4& viewProj, const EngVec& world, float&
     return true;
 }
 
+inline bool OffsetHudWidget(const EngMat4& hud, float aimX, float aimY, float& x, float& y) {
+    const float determinant = hud.a.x * hud.b.y - hud.b.x * hud.a.y;
+    if (!std::isfinite(determinant) || std::fabs(determinant) < 1e-8f ||
+        !std::isfinite(aimX) || !std::isfinite(aimY)) return false;
+    const float dx = 2.0f * (aimX - 0.5f);
+    const float dy = -2.0f * (aimY - 0.5f);
+    x += (hud.b.y * dx - hud.b.x * dy) / determinant;
+    y += (hud.a.x * dy - hud.a.y * dx) / determinant;
+    return true;
+}
+
 }  // namespace RedEclipseHeadTracking
