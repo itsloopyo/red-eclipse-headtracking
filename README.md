@@ -11,6 +11,7 @@ An unofficial head tracking mod for Red Eclipse that moves the view with your he
   clean, mouse-controlled camera - the head transform only reaches the renderer.
 - **6DOF.** Lean and move your head to shift the viewpoint, with per-axis
   sensitivity, travel limits and smoothing.
+- **Works with any OpenTrack compatible tracker** - free options available for PC, iOS and Android
 
 ## A note on multiplayer
 
@@ -31,6 +32,13 @@ connect.
   webcam, or a phone app that sends the same packets
 
 ## Installation
+
+### Lopari
+
+Download [Lopari](https://lopari.app), choose **Red Eclipse**, and click
+**Play with head tracking**.
+
+### Standalone Installer
 
 Run `install.cmd` from the release ZIP. It finds your Red Eclipse install,
 drops the ASI loader and the mod into `bin\amd64\`, and records what it did so
