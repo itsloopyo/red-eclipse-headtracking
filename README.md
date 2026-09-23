@@ -134,7 +134,6 @@ view sits off to one side, centre it in the tracker.
 | Toggle tracking | `End` | `Ctrl+Shift+Y` |
 | Cycle tracking mode (6DOF / rotation only / position only) | `Page Up` | `Ctrl+Shift+G` |
 | Toggle yaw mode (horizon-locked / camera-local) | `Page Down` | `Ctrl+Shift+H` |
-| Cycle ADS mode | `Insert` | `Ctrl+Shift+U` |
 
 The chords exist for keyboards without a nav cluster; both sets are always
 active.
@@ -143,17 +142,12 @@ There is no recentre key. Your tracker app owns the centre: use its own control
 (opentrack's Center bind, the CENTER button in Headcam, SteamVR's reset) and the
 mod applies whatever pose it receives.
 
-`Insert` / `Ctrl+Shift+U` cycles what happens when you aim down sights:
+### Aiming down sights
 
-1. **Tracking paused** (default): yaw, pitch and lean ease onto the aim point
-   while zooming. Head tilt remains active.
-2. **Tracking on**: yaw, pitch and lean track relative to the pose you held
-   when aiming began. The game's zoom crosshair follows the clean aim point.
-
-Both ease onto the aim over 150 ms and return to the absolute head pose over
-250 ms when you lower the weapon. Zoom compensation keeps the narrower field
-of view from magnifying head movement. Roll stays absolute in both modes.
-The choice is saved across restarts; the log names the selected mode.
+Head tracking stays on while you zoom. The zoom crosshair stays on your aim, so
+with your head turned it sits off to one side, on the spot your shots will hit.
+Head movement is scaled to the zoom, so the scope does not magnify it. Leaning
+eases out while zoomed, because it would move your eye off the aim.
 
 ## Configuration
 
@@ -164,7 +158,6 @@ The choice is saved across restarts; the log names the selected mode.
 | `General.EnableOnStartup` | `true` | |
 | `General.Port` | `4242` | OpenTrack's standard port |
 | `General.WorldSpaceYaw` | `true` | Horizon-locked yaw |
-| `General.AdsMode` | `paused` | `paused` or `tracked`; saved by the ADS hotkey |
 | `Sensitivity.Yaw` / `Pitch` / `Roll` | `1.0` | |
 | `Sensitivity.InvertYaw` | `true` | Matches the tracker's sign to the engine's |
 | `Sensitivity.InvertPitch` | `false` | |
@@ -211,6 +204,10 @@ matches, the tracker is actually running, and the firewall allows UDP 4242.
 
 **Tracking does not move the view in menus.** That is deliberate - tracking is
 suppressed whenever a menu, the console or the Steam overlay has input.
+
+**The crosshair is off to one side when I zoom.** Your head is turned: the
+crosshair stays on your aim and you are looking past it. Turn back to it, or
+move your aim to where you are looking.
 
 **The view sits off to one side.** Centre it in your tracker app. The mod has no
 centre of its own; it applies the pose the tracker sends.

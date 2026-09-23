@@ -37,9 +37,6 @@ public:
     void ToggleEnabled();
     void CycleTrackingMode();
     void ToggleYawMode();
-    void RequestAdsCycle();
-    bool ApplyAdsCycle();
-    cameraunlock::ads::AdsMode GetAdsMode() const { return m_cfg.ads_mode; }
 
     bool IsWorldSpaceYaw() const { return m_worldSpaceYaw.load(std::memory_order_relaxed); }
 
@@ -71,8 +68,6 @@ private:
     bool m_remoteConnectionKnown = false;
 
     std::atomic<bool> m_enabled{false};
-    std::atomic<bool> m_adsCycleRequested{false};
-    unsigned long long m_lastAdsRequestMs = 0;
     std::atomic<bool> m_worldSpaceYaw{true};
 };
 

@@ -14,7 +14,7 @@ namespace {
 const GameSymbols* g_symbols = nullptr;
 TrackingRuntime* g_tracking = nullptr;
 Config g_config;
-AdsState g_ads;
+AdsLean g_adsLean;
 
 void (*g_originalSetCamMatrix)() = nullptr;
 void (*g_originalRecomputeCamera)() = nullptr;
@@ -49,6 +49,35 @@ bool HasGameplayInput() {
     return g_symbols->hasinput(false, true) == 0;
 }
 
+// curfov and game::fov() are both horizontal degrees: fixview interpolates
+// curfov from fov() towards the weapon's zoom FOV, and leaves it at fov()
+// outside a zoom, so the factor is exactly 1 at the hip.
+float ZoomFactor() {
+    const float currentFov = *g_symbols->curfov;
+    const float baseFov = static_cast<float>(g_symbols->fov());
+    const bool readable = std::isfinite(currentFov) && currentFov > 0 && currentFov < 180 &&
+                          baseFov > 0 && baseFov < 180;
+    static bool reported = false;
+    if (!readable) {
+        if (!reported) {
+            reported = true;
+            Log::Line("Zoom compensation off: unreadable FOV curfov=%.4f base=%.4f", currentFov, baseFov);
+        }
+        return 1.0f;
+    }
+    constexpr float kHalfDegToRad = 3.14159265358979323846f / 360.0f;
+    const float tanCurrent = std::tan(currentFov * kHalfDegToRad);
+    const float tanBase = std::tan(baseFov * kHalfDegToRad);
+    const float zoom = cameraunlock::camera::FovZoomFactor(tanCurrent, tanBase);
+    if (!reported) {
+        reported = true;
+        Log::Line("Zoom compensation: curfov=%.4f deg (horizontal) base=%.4f deg (horizontal, game::fov) "
+                  "tan(cur/2)=%.4f tan(base/2)=%.4f factor=%.4f",
+                  currentFov, baseFov, tanCurrent, tanBase, zoom);
+    }
+    return zoom;
+}
+
 void HookedRecomputeCamera() {
     // Hand the game back the untouched view matrix. It is about to run
     // vecfromcursor against cammatrix to work out worldpos, the point the
@@ -61,58 +90,38 @@ void HookedRecomputeCamera() {
 
     g_originalRecomputeCamera();
 
+    const float zoom = ZoomFactor();
+
     // One tracker sample per frame, taken here because setcammatrix runs more
     // than once per frame (the halo pass reuses it).
     FrameSample sample = g_tracking->SampleFrame();
-    static int previousChannels = 0;
-    const int channels = (sample.has_rotation ? 1 : 0) | (sample.has_position ? 2 : 0);
-    if (channels != previousChannels) g_ads.Reset();
-    previousChannels = channels;
-    const bool modeChanged = g_tracking->ApplyAdsCycle();
-    const auto mode = g_tracking->GetAdsMode();
     if ((!sample.has_rotation && !sample.has_position) || !g_hasCleanCamMatrix || !HasGameplayInput()) {
-        g_ads.Reset();
+        g_adsLean.Reset();
         g_headActive = false;
-        if (modeChanged) Log::Line("%s", cameraunlock::ads::AdsModeToast(mode));
         return;
     }
 
+    // Polled every frame from the game's own zoom state. inzoom() alone stays
+    // true through the zoom-out animation and would hold the lean out after the
+    // player has let go.
     const bool aiming = *g_symbols->zooming && g_symbols->inzoom();
-    AdsState::Pose absolute{sample.pitch, sample.yaw, sample.roll,
-                            sample.pos_x, sample.pos_y, sample.pos_z};
-    const auto blended = g_ads.Update(true, aiming, sample.has_rotation || sample.has_position,
-                                     mode, GetTickCount64(), absolute);
-    if (modeChanged) Log::Line("%s", cameraunlock::ads::AdsModeToast(mode));
-    const float currentFov = *g_symbols->curfov;
-    const float baseFov = static_cast<float>(g_symbols->fov());
-    constexpr float radians = 3.14159265358979323846f / 360.0f;
-    float zoom = 1.0f;
-    if (std::isfinite(currentFov) && currentFov > 0 && currentFov < 180 &&
-        baseFov > 0 && baseFov < 180) {
-        zoom = cameraunlock::camera::FovZoomFactor(std::tan(currentFov * radians),
-                                                  std::tan(baseFov * radians));
-    }
+    const TrackedPose tracked = g_adsLean.Apply(
+        aiming, GetTickCount64(),
+        TrackedPose{sample.pitch, sample.yaw, sample.roll, sample.pos_x, sample.pos_y, sample.pos_z});
+
     HeadPose pose;
-    pose.yaw_deg = zoom == 1.0f ? blended.yaw : cameraunlock::camera::ScaleAngleForZoom(blended.yaw, zoom);
-    pose.pitch_deg = zoom == 1.0f ? blended.pitch : cameraunlock::camera::ScaleAngleForZoom(blended.pitch, zoom);
-    pose.roll_deg = blended.roll;
-    static unsigned long long lastAdsLogMs = 0;
-    const auto now = GetTickCount64();
-    if (aiming && now - lastAdsLogMs >= 1000) {
-        lastAdsLogMs = now;
-        Log::Line("ADS sample: mode=%s head=(%.2f,%.2f,%.2f) view=(%.2f,%.2f,%.2f) fov=%.2f/%.2f",
-                  cameraunlock::ads::AdsModeValue(mode), sample.yaw, sample.pitch, sample.roll,
-                  pose.yaw_deg, pose.pitch_deg, pose.roll_deg, currentFov, baseFov);
-    }
+    pose.yaw_deg = cameraunlock::camera::ScaleAngleForZoom(tracked.yaw, zoom);
+    pose.pitch_deg = cameraunlock::camera::ScaleAngleForZoom(tracked.pitch, zoom);
+    pose.roll_deg = tracked.roll;
     if (sample.has_position) {
         // The tracker's x and z run opposite to Cube's camera axes. Correcting
         // it here rather than through the processor's InvertX/InvertZ keeps the
         // asymmetric Z limits pointing the way they are documented: the
         // generous LimitZ on leaning forward, the restricted LimitZBack on
         // leaning back. Those are clamped before the sample ever reaches here.
-        pose.x = -blended.x * g_config.position_scale * zoom;
-        pose.y = blended.y * g_config.position_scale * zoom;
-        pose.z = -blended.z * g_config.position_scale * zoom;
+        pose.x = -tracked.x * g_config.position_scale * zoom;
+        pose.y = tracked.y * g_config.position_scale * zoom;
+        pose.z = -tracked.z * g_config.position_scale * zoom;
     }
 
     g_headTransform = BuildHeadTransform(pose, g_cleanCamMatrix, g_tracking->IsWorldSpaceYaw());

@@ -1,8 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <string>
-#include "cameraunlock/ads/ads_mode.h"
 
 #include "cameraunlock/data/position_settings.h"
 #include "cameraunlock/math/smoothing_utils.h"
@@ -10,10 +8,6 @@
 namespace RedEclipseHeadTracking {
 
 struct Config {
-    cameraunlock::ads::AdsMode ads_mode = cameraunlock::ads::kDefaultAdsMode;
-    std::string ini_path;
-    int vk_ads_mode = 0x2D;
-    bool chord_ads_mode = true;
     bool enabled_on_startup = true;
     uint16_t udp_port = 4242;
 

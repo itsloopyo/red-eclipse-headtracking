@@ -1,40 +1,31 @@
 #pragma once
 
-#include "cameraunlock/ads/ads_blend.h"
 #include "cameraunlock/ads/ads_fade.h"
 
 namespace RedEclipseHeadTracking {
 
-class AdsState {
+struct TrackedPose {
+    float pitch = 0.0f, yaw = 0.0f, roll = 0.0f;
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+};
+
+// Red Eclipse fades the first-person model out as the zoom comes in and puts
+// the zoom crosshair where the aim lands, so rotation needs nothing here. A lean
+// is eased out while zoomed so the scope is looked through from the clean eye.
+class AdsLean {
 public:
-    using Pose = cameraunlock::ads::AdsEntryPose::Pose;
-    using Mode = cameraunlock::ads::AdsMode;
-
-    Pose Update(bool active, bool aiming, bool live, Mode mode,
-                unsigned long long nowMs, const Pose& absolute) {
-        if (!active) {
-            Reset();
-            return {};
-        }
-        if (mode != m_mode) {
-            Reset();
-            m_mode = mode;
-        }
+    TrackedPose Apply(bool aiming, unsigned long long nowMs, TrackedPose pose) {
         const float scale = m_fade.Update(aiming, nowMs);
-        // Keep the entry through the return fade, including interrupted aims.
-        const Pose relative = m_entry.Relative(aiming || scale < 1.0f, live, absolute);
-        return cameraunlock::ads::BlendAdsPose(mode, scale, absolute, relative);
+        pose.x *= scale;
+        pose.y *= scale;
+        pose.z *= scale;
+        return pose;
     }
 
-    void Reset() {
-        m_fade.Reset();
-        m_entry.Reset();
-    }
+    void Reset() { m_fade.Reset(); }
 
 private:
     cameraunlock::ads::AdsFade m_fade;
-    cameraunlock::ads::AdsEntryPose m_entry;
-    Mode m_mode = cameraunlock::ads::kDefaultAdsMode;
 };
 
 }

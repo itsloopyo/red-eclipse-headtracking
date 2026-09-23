@@ -64,8 +64,6 @@ void WriteDefaultIni(const char* path) {
     w.WriteInt("DataFreshnessMs", kDefaultDataFreshnessMs);
     w.WriteComment(" Yaw mode: true = horizon-locked yaw (default), false = camera-local.");
     w.WriteBool("WorldSpaceYaw", kDefaultWorldSpaceYaw);
-    w.WriteComment(" ADS: paused or tracked. Insert / Ctrl+Shift+U cycles and saves the choice.");
-    w.WriteString("AdsMode", cameraunlock::ads::AdsModeValue(cameraunlock::ads::kDefaultAdsMode));
     w.WriteBlankLine();
     w.WriteSection("Sensitivity");
     w.WriteDouble("Yaw", kDefaultSensitivity);
@@ -105,19 +103,16 @@ void WriteDefaultIni(const char* path) {
     w.WriteHex("Toggle", kDefaultVkToggle);
     w.WriteHex("CycleMode", kDefaultVkCycleMode);
     w.WriteHex("YawMode", kDefaultVkYawMode);
-    w.WriteHex("AdsMode", 0x2D);
     w.WriteComment(" Chord alternatives: Ctrl+Shift+Y (toggle), Ctrl+Shift+G (cycle tracking mode), Ctrl+Shift+H (yaw mode).");
     w.WriteBool("ChordToggle", kDefaultChord);
     w.WriteBool("ChordCycleMode", kDefaultChord);
     w.WriteBool("ChordYawMode", kDefaultChord);
-    w.WriteBool("ChordAdsMode", kDefaultChord);
     w.Close();
 }
 
 }
 
 bool Config::LoadOrCreate(const char* iniPath) {
-    ini_path = iniPath;
     if (!FileExists(iniPath)) {
         WriteDefaultIni(iniPath);
     }
@@ -137,12 +132,6 @@ bool Config::LoadOrCreate(const char* iniPath) {
     udp_port = static_cast<uint16_t>(port);
     data_freshness_ms = ini.ReadInt("General", "DataFreshnessMs", kDefaultDataFreshnessMs);
     world_space_yaw = ini.ReadBool("General", "WorldSpaceYaw", kDefaultWorldSpaceYaw);
-    const auto rawAds = ini.ReadString("General", "AdsMode", "paused");
-    ads_mode = cameraunlock::ads::ParseAdsMode(rawAds.c_str(), false);
-    if (_stricmp(rawAds.c_str(), cameraunlock::ads::AdsModeValue(ads_mode)) != 0) {
-        Log::Line("WARN: INI AdsMode '%s' parsed as '%s'", rawAds.c_str(),
-                  cameraunlock::ads::AdsModeValue(ads_mode));
-    }
 
     auto sanitize = [](const char* name, float raw, float clean) {
         if (raw != clean) {
@@ -190,8 +179,6 @@ bool Config::LoadOrCreate(const char* iniPath) {
     chord_toggle     = ini.ReadBool("Hotkeys", "ChordToggle",    kDefaultChord);
     chord_cycle_mode = ini.ReadBool("Hotkeys", "ChordCycleMode", kDefaultChord);
     chord_yaw_mode   = ini.ReadBool("Hotkeys", "ChordYawMode",   kDefaultChord);
-    vk_ads_mode = ini.ReadHex("Hotkeys", "AdsMode", 0x2D);
-    chord_ads_mode = ini.ReadBool("Hotkeys", "ChordAdsMode", kDefaultChord);
 
     return true;
 }
