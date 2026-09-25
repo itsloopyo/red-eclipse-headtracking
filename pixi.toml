@@ -32,11 +32,12 @@ install = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/deploy.ps1 R
 # Remove the mod from the game directory. /y keeps it prompt-free under pixi (no TTY).
 uninstall = "scripts\\uninstall.cmd /y"
 
-# Host-side unit tests (HEADTRACKING_BUILD_TESTS, enabled by setup).
+# Host-side unit tests (HEADTRACKING_BUILD_TESTS, enabled by setup), the config
+# differential test against the published build, and the frozen-file check.
 test = { cmd = "ctest --test-dir build -C Release --output-on-failure", depends-on = ["build-release"] }
 
 # Package release ZIPs (installer + nexus).
-package = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1", depends-on = ["build-release"] }
+package = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1", depends-on = ["build-release", "test"] }
 
 # Clean build artifacts. No $vars in inline commands - pixi's shell eats them before PowerShell runs.
 clean = { cmd = """

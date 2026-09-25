@@ -1,20 +1,25 @@
 ﻿#include "config.h"
 
+#include "config_sanitize.h"
 #include "logging.h"
-#include "legacy_config/legacy_config.h"
 
 #include "cameraunlock/config/ini_reader.h"
 
+#include <cstdio>
 #include <fstream>
 
 namespace RedEclipseHeadTracking {
 
 namespace {
 
-// The defaults the first-run writer puts in a new file. The frozen reader in
-// legacy_config/ holds the same values for a key the file leaves out.
+// Single source of truth for the INI defaults and the port validation bounds,
+// shared by the writer (WriteDefaultIni) and the reader (LoadOrCreate) so the
+// two cannot drift apart. The float-typed defaults widen to double for the
+// WriteDouble calls and match ReadFloat exactly on the read side.
 constexpr bool  kDefaultEnableOnStartup = true;
 constexpr int   kDefaultPort            = 4242;
+constexpr int   kMinPort                = 1024;
+constexpr int   kMaxPort                = 65535;
 constexpr int   kDefaultDataFreshnessMs = 500;
 constexpr bool  kDefaultWorldSpaceYaw   = true;
 constexpr float kDefaultSensitivity     = 1.0f;
@@ -59,6 +64,8 @@ void WriteDefaultIni(const char* path) {
     w.WriteInt("DataFreshnessMs", kDefaultDataFreshnessMs);
     w.WriteComment(" Yaw mode: true = horizon-locked yaw (default), false = camera-local.");
     w.WriteBool("WorldSpaceYaw", kDefaultWorldSpaceYaw);
+    w.WriteComment(" ADS: paused or tracked. Insert / Ctrl+Shift+U cycles and saves the choice.");
+    w.WriteString("AdsMode", cameraunlock::ads::AdsModeValue(cameraunlock::ads::kDefaultAdsMode));
     w.WriteBlankLine();
     w.WriteSection("Sensitivity");
     w.WriteDouble("Yaw", kDefaultSensitivity);
@@ -98,68 +105,93 @@ void WriteDefaultIni(const char* path) {
     w.WriteHex("Toggle", kDefaultVkToggle);
     w.WriteHex("CycleMode", kDefaultVkCycleMode);
     w.WriteHex("YawMode", kDefaultVkYawMode);
+    w.WriteHex("AdsMode", 0x2D);
     w.WriteComment(" Chord alternatives: Ctrl+Shift+Y (toggle), Ctrl+Shift+G (cycle tracking mode), Ctrl+Shift+H (yaw mode).");
     w.WriteBool("ChordToggle", kDefaultChord);
     w.WriteBool("ChordCycleMode", kDefaultChord);
     w.WriteBool("ChordYawMode", kDefaultChord);
+    w.WriteBool("ChordAdsMode", kDefaultChord);
     w.Close();
 }
 
 }
 
 bool Config::LoadOrCreate(const char* iniPath) {
+    ini_path = iniPath;
     if (!FileExists(iniPath)) {
         WriteDefaultIni(iniPath);
     }
 
-    // Absent here means the write above did not produce a file the frozen reader could
-    // open. The build before the freeze went on to read whatever GetFileAttributesA
-    // found, which is the defaults, and stopped only where it found nothing.
-    legacy::Config read;
-    const legacy::ReadStatus status = legacy::Read(iniPath, read);
-    if (status == legacy::ReadStatus::Absent && !cameraunlock::IniReader().Open(iniPath)) {
+    cameraunlock::IniReader ini;
+    if (!ini.Open(iniPath)) {
         Log::Line("ERROR: Failed to open INI: %s", iniPath);
         return false;
     }
-    if (status == legacy::ReadStatus::OpenFailed || status == legacy::ReadStatus::PortRefused) {
+
+    enabled_on_startup = ini.ReadBool("General", "EnableOnStartup", kDefaultEnableOnStartup);
+    int port = ini.ReadInt("General", "Port", kDefaultPort);
+    if (port < kMinPort || port > kMaxPort) {
+        Log::Line("ERROR: INI port %d out of range %d-%d", port, kMinPort, kMaxPort);
         return false;
     }
+    udp_port = static_cast<uint16_t>(port);
+    data_freshness_ms = ini.ReadInt("General", "DataFreshnessMs", kDefaultDataFreshnessMs);
+    world_space_yaw = ini.ReadBool("General", "WorldSpaceYaw", kDefaultWorldSpaceYaw);
+    const auto rawAds = ini.ReadString("General", "AdsMode", "paused");
+    ads_mode = cameraunlock::ads::ParseAdsMode(rawAds.c_str(), false);
+    if (_stricmp(rawAds.c_str(), cameraunlock::ads::AdsModeValue(ads_mode)) != 0) {
+        Log::Line("WARN: INI AdsMode '%s' parsed as '%s'", rawAds.c_str(),
+                  cameraunlock::ads::AdsModeValue(ads_mode));
+    }
 
-    enabled_on_startup = read.enabled_on_startup;
-    udp_port = read.udp_port;
-    data_freshness_ms = read.data_freshness_ms;
-    world_space_yaw = read.world_space_yaw;
+    auto sanitize = [](const char* name, float raw, float clean) {
+        if (raw != clean) {
+            Log::Line("WARN: INI %s value %.4f out of range or non-finite; using %.4f",
+                      name, raw, clean);
+        }
+        return clean;
+    };
 
-    sens_yaw = read.sens_yaw;
-    sens_pitch = read.sens_pitch;
-    sens_roll = read.sens_roll;
-    invert_yaw = read.invert_yaw;
-    invert_pitch = read.invert_pitch;
-    invert_roll = read.invert_roll;
+    float rawSensYaw   = ini.ReadFloat("Sensitivity", "Yaw",   kDefaultSensitivity);
+    float rawSensPitch = ini.ReadFloat("Sensitivity", "Pitch", kDefaultSensitivity);
+    float rawSensRoll  = ini.ReadFloat("Sensitivity", "Roll",  kDefaultSensitivity);
+    sens_yaw   = sanitize("Sensitivity.Yaw",   rawSensYaw,   SanitizeSensitivity(rawSensYaw));
+    sens_pitch = sanitize("Sensitivity.Pitch", rawSensPitch, SanitizeSensitivity(rawSensPitch));
+    sens_roll  = sanitize("Sensitivity.Roll",  rawSensRoll,  SanitizeSensitivity(rawSensRoll));
+    invert_yaw   = ini.ReadBool("Sensitivity", "InvertYaw",   kDefaultInvertYaw);
+    invert_pitch = ini.ReadBool("Sensitivity", "InvertPitch", kDefaultInvert);
+    invert_roll  = ini.ReadBool("Sensitivity", "InvertRoll",  kDefaultInvertRoll);
 
-    local_smoothing = read.local_smoothing;
-    remote_smoothing = read.remote_smoothing;
-    deadzone_deg = read.deadzone_deg;
+    float rawLocalSmoothing  = ini.ReadFloat("Smoothing", "LocalSmoothing",  kDefaultLocalSmoothing);
+    float rawRemoteSmoothing = ini.ReadFloat("Smoothing", "RemoteSmoothing", kDefaultRemoteSmoothing);
+    float rawDeadzone  = ini.ReadFloat("Smoothing", "DeadzoneDeg", kDefaultDeadzoneDeg);
+    local_smoothing  = sanitize("Smoothing.LocalSmoothing",  rawLocalSmoothing,
+                                SanitizeSmoothing(rawLocalSmoothing, kDefaultLocalSmoothing));
+    remote_smoothing = sanitize("Smoothing.RemoteSmoothing", rawRemoteSmoothing,
+                                SanitizeSmoothing(rawRemoteSmoothing, kDefaultRemoteSmoothing));
+    deadzone_deg = sanitize("Smoothing.DeadzoneDeg", rawDeadzone,  SanitizeDeadzone(rawDeadzone));
 
-    position_enabled = read.position_enabled;
-    pos_sens_x = read.pos_sens_x;
-    pos_sens_y = read.pos_sens_y;
-    pos_sens_z = read.pos_sens_z;
-    pos_limit_x = read.pos_limit_x;
-    pos_limit_y = read.pos_limit_y;
-    pos_limit_z = read.pos_limit_z;
-    pos_limit_z_back = read.pos_limit_z_back;
-    position_scale = read.position_scale;
-    invert_pos_x = read.invert_pos_x;
-    invert_pos_y = read.invert_pos_y;
-    invert_pos_z = read.invert_pos_z;
+    position_enabled = ini.ReadBool("Position", "Enabled", kDefaultPositionEnabled);
+    pos_sens_x = ini.ReadFloat("Position", "SensitivityX", kDefaultPosSens);
+    pos_sens_y = ini.ReadFloat("Position", "SensitivityY", kDefaultPosSens);
+    pos_sens_z = ini.ReadFloat("Position", "SensitivityZ", kDefaultPosSens);
+    pos_limit_x = ini.ReadFloat("Position", "LimitX", kDefaultPosLimitX);
+    pos_limit_y = ini.ReadFloat("Position", "LimitY", kDefaultPosLimitY);
+    pos_limit_z = ini.ReadFloat("Position", "LimitZ", kDefaultPosLimitZ);
+    pos_limit_z_back = ini.ReadFloat("Position", "LimitZBack", kDefaultPosLimitZBack);
+    position_scale = ini.ReadFloat("Position", "PositionScale", kDefaultPositionScale);
+    invert_pos_x = ini.ReadBool("Position", "InvertX", kDefaultInvertPosX);
+    invert_pos_y = ini.ReadBool("Position", "InvertY", kDefaultInvert);
+    invert_pos_z = ini.ReadBool("Position", "InvertZ", kDefaultInvertPosZ);
 
-    vk_toggle = read.vk_toggle;
-    vk_cycle_mode = read.vk_cycle_mode;
-    vk_yaw_mode = read.vk_yaw_mode;
-    chord_toggle = read.chord_toggle;
-    chord_cycle_mode = read.chord_cycle_mode;
-    chord_yaw_mode = read.chord_yaw_mode;
+    vk_toggle     = ini.ReadHex("Hotkeys", "Toggle",    kDefaultVkToggle);
+    vk_cycle_mode = ini.ReadHex("Hotkeys", "CycleMode", kDefaultVkCycleMode);
+    vk_yaw_mode   = ini.ReadHex("Hotkeys", "YawMode",   kDefaultVkYawMode);
+    chord_toggle     = ini.ReadBool("Hotkeys", "ChordToggle",    kDefaultChord);
+    chord_cycle_mode = ini.ReadBool("Hotkeys", "ChordCycleMode", kDefaultChord);
+    chord_yaw_mode   = ini.ReadBool("Hotkeys", "ChordYawMode",   kDefaultChord);
+    vk_ads_mode = ini.ReadHex("Hotkeys", "AdsMode", 0x2D);
+    chord_ads_mode = ini.ReadBool("Hotkeys", "ChordAdsMode", kDefaultChord);
 
     return true;
 }

@@ -1,0 +1,40 @@
+# The config differential test's record: the published builds, the frozen legacy reader,
+# the core sources it compiles, and the oracle and first-run inputs the test measures it
+# against. check-frozen.ps1 fails when a working-tree path below stops matching its hash.
+# Rows naming <tag>:<path> or <core commit>:<path> are provenance, the blobs the oracle and
+# the import were taken from, and are not checked (CI clones no tags).
+#
+# Published builds: v0.2.0 at af6d8d5 (cameraunlock-core 5e66142), v0.3.0 at 781dd1e
+# (cameraunlock-core 3465659) and v0.3.1 at 7753b00 (cameraunlock-core ee8cc72). v0.1.0 is a
+# tag with no release; its reader and core pin are v0.2.0's. There is no dev pre-release.
+# The frozen reader is src/config.cpp's reading half as of 1a266c2 (cameraunlock-core befb88e).
+#
+# path	sha256	what
+src/legacy_config/legacy_config.h	8b88f664c2c0a67a8a6ad1290eaaae8f6d05a1135746cd3407b01516609b9020	the frozen reader
+src/legacy_config/legacy_config.cpp	38aa8486c0bf737368c5d36e980e98bdd52fe76bdbb3cb54c3c8175b9e9aaeb7	the frozen reader
+src/legacy_config/config_sanitize.h	b41a36c9c518e8118f8b047982ddca45f333706d7c93eea8d9aa03063bd99704	the frozen reader; v0.3.1:src/config_sanitize.h and 1a266c2:src/config_sanitize.h, moved unchanged
+cameraunlock-core/cpp/include/cameraunlock/config/ini_reader.h	a7ffb44210ff59672fa97e8e5feaa2cb3e81938fcc0334a384c68bc371b3857a	compiled by the import and the oracle; the same bytes at ee8cc72
+cameraunlock-core/cpp/src/config/ini_reader.cpp	e01515c2656aaf533bae4350dc45b702c3e3d4043935743dcc9bd5ea581fbe1c	compiled by the import and the oracle; the same bytes at ee8cc72
+cameraunlock-core/cpp/include/cameraunlock/logging/file_log.h	43bdd2ef8554c78e5f440333463750c13b95110fe672b0b6e273244df9e7d169	compiled by the import and the oracle; the same bytes at ee8cc72
+cameraunlock-core/cpp/src/logging/file_log.cpp	73c53c2baa06bbfebe8211f62678aa2b60cb95f604743d3686951ba56b87ea47	compiled by the import and the oracle; the same bytes at ee8cc72
+cameraunlock-core/cpp/include/cameraunlock/data/position_settings.h	b24dceb8e25475aebc5a468a5c7362a4a4e64204d183d1408525345f32f547f5	the oracle's defaults; the same bytes at ee8cc72
+cameraunlock-core/cpp/include/cameraunlock/math/smoothing_utils.h	fc2146f8c585e5f610c7234e302f59de4945679cfa28ff479ca47477ec073f22	the oracle's defaults; the same bytes at ee8cc72
+tests/config_differential/oracle/src/config.h	8bea8985735ed4390a075749455c2eb2a402ac0f2e70ebc49ad008b75a6ec9b2	the oracle; v0.3.1:src/config.h byte for byte
+tests/config_differential/oracle/src/config.cpp	f83f9f8cffa4ab283e5d72cae7bb6bbd2f8c03337a240e69ee1d55503fd87254	the oracle; v0.3.1:src/config.cpp byte for byte
+tests/config_differential/oracle/src/config_sanitize.h	b41a36c9c518e8118f8b047982ddca45f333706d7c93eea8d9aa03063bd99704	the oracle; v0.3.1:src/config_sanitize.h byte for byte
+tests/config_differential/oracle/src/logging.h	de0fdd9aab2e7cc26c5308e83e3ab73a45be1171bff621b07e790f846c56708a	the oracle; v0.3.1:src/logging.h byte for byte
+tests/config_differential/oracle/core/include/cameraunlock/ads/ads_mode.h	94cd36b585e878e673566f602e9496417cb797970162fcc9c2af1e50e24358de	the oracle; ee8cc72:cpp/include/cameraunlock/ads/ads_mode.h byte for byte, since removed from core
+tests/config_differential/inputs/first-run-v0.2.0.ini	6a37c77955359dc3adac4bc68d26ed25510e455be1421b377fc3daa5f12225a9	the first-run output of v0.2.0, extracted once from v0.2.0:src/config.cpp built against its core pin
+tests/config_differential/inputs/first-run-v0.3.0.ini	1a5a161a98e7c9cd0fcb634ebea128dcf536c4e52adf7f2fd43b2e763a3f5f5f	the first-run output of v0.3.0, extracted once from v0.3.0:src/config.cpp built against its core pin
+tests/config_differential/inputs/first-run-v0.3.1.ini	2c18a0b5c6875dc3622c7269d6479211f330c1a88a589d1aae61380c03633d4b	the first-run output of v0.3.1, extracted once from v0.3.1:src/config.cpp built against its core pin
+v0.3.1:src/config.h	8bea8985735ed4390a075749455c2eb2a402ac0f2e70ebc49ad008b75a6ec9b2	oracle source
+v0.3.1:src/config.cpp	f83f9f8cffa4ab283e5d72cae7bb6bbd2f8c03337a240e69ee1d55503fd87254	oracle source
+v0.3.1:src/config_sanitize.h	b41a36c9c518e8118f8b047982ddca45f333706d7c93eea8d9aa03063bd99704	oracle source
+v0.3.1:src/logging.h	de0fdd9aab2e7cc26c5308e83e3ab73a45be1171bff621b07e790f846c56708a	oracle source
+v0.3.1:src/hotkeys.cpp	8b3e6f8a088309ed0331e4c7d2b9b82876d0a6992fee3620c07500f4edde7b64	oracle source
+v0.3.1:src/tracking_runtime.cpp	803be1416cc54732af1ec5809462f9da318753d7e833f5a9a87a0ede74a4b368	oracle source
+ee8cc72:cpp/include/cameraunlock/ads/ads_mode.h	94cd36b585e878e673566f602e9496417cb797970162fcc9c2af1e50e24358de	oracle source
+1a266c2:src/config.h	38f617df967a11f731485d733c3794e25b093eafdd848fd423caeb11b310c0cc	the reader and startup code the import was frozen from
+1a266c2:src/config.cpp	a4033e5a69576500b0780b7f937da2c9a2d7c2fa5c98a12dc57983a4d3ae2715	the reader and startup code the import was frozen from
+1a266c2:src/hotkeys.cpp	dcff1a8e479bfe35deeec1aaaf8be53e2a25fd8296a45c0615317c802e4e5e26	the reader and startup code the import was frozen from
+1a266c2:src/tracking_runtime.cpp	1508f773abe90f00526f5042ffdb401b54e2c58428f9770f53ef5a5dd9d6854a	the reader and startup code the import was frozen from
