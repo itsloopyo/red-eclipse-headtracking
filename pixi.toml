@@ -36,6 +36,16 @@ uninstall = "scripts\\uninstall.cmd /y"
 # differential test against the published build, and the frozen-file check.
 test = { cmd = "ctest --test-dir build -C Release --output-on-failure", depends-on = ["build-release"] }
 
+# Rewrites config/RedEclipseHeadTracking.ini, the committed config, from the config table
+# after a change to a row, a comment or a default. The config tests fail until it has run.
+# There is no launcher seed to re-encode; encode-seed says so.
+render-config = { cmd = "build/Release/config_tests.exe --render-config config/RedEclipseHeadTracking.ini && node cameraunlock-core/scripts/encode-seed.mjs", depends-on = ["build-release"] }
+
+# Validates the newest built installer ZIP against its manifest, and that the Nexus ZIP
+# carries no config, so run package first. No depends-on: re-running the packager here
+# would rebuild the ZIP it is meant to be inspecting.
+validate-manifest = "node cameraunlock-core/scripts/validate-manifest.mjs"
+
 # Package release ZIPs (installer + nexus).
 package = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1", depends-on = ["build-release", "test"] }
 

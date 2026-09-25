@@ -1,167 +1,134 @@
-﻿#include "config.h"
+#include "config.h"
 
-#include "logging.h"
 #include "legacy_config/legacy_config.h"
 
-#include "cameraunlock/config/ini_reader.h"
+#include "cameraunlock/config/head_tracking_config_table.h"
+#include "cameraunlock/input/key_bindings.h"
+#include "cameraunlock/tracking/tracking_mode.h"
 
-#include <fstream>
+#include <utility>
+#include <vector>
 
 namespace RedEclipseHeadTracking {
 
 namespace {
 
-// The defaults the first-run writer puts in a new file. The frozen reader in
-// legacy_config/ holds the same values for a key the file leaves out.
-constexpr bool  kDefaultEnableOnStartup = true;
-constexpr int   kDefaultPort            = 4242;
-constexpr int   kDefaultDataFreshnessMs = 500;
-constexpr bool  kDefaultWorldSpaceYaw   = true;
-constexpr float kDefaultSensitivity     = 1.0f;
-constexpr bool  kDefaultInvert          = false;
-// The head transform is built with right-handed rotations about Cube's camera
-// axes, which runs opposite to the tracker on yaw and roll. Correcting it here
-// keeps the INI as the one place a user has to look to flip an axis.
-constexpr bool  kDefaultInvertYaw       = true;
-constexpr bool  kDefaultInvertRoll      = true;
-constexpr bool  kDefaultInvertPosX      = false;
-constexpr bool  kDefaultInvertPosZ      = false;
-constexpr float kDefaultLocalSmoothing  = static_cast<float>(cameraunlock::math::kDefaultLocalSmoothing);
-constexpr float kDefaultRemoteSmoothing = static_cast<float>(cameraunlock::math::kDefaultRemoteSmoothing);
-constexpr float kDefaultDeadzoneDeg     = 0.0f;
-constexpr int   kDefaultVkToggle        = 0x23; // VK_END
-constexpr int   kDefaultVkCycleMode     = 0x21; // VK_PRIOR (Page Up)
-constexpr int   kDefaultVkYawMode       = 0x22; // VK_NEXT (Page Down)
-constexpr bool  kDefaultChord           = true;
+namespace cfg = cameraunlock::config;
+using cameraunlock::input::KeyBinding;
+using cameraunlock::input::KeyModifiers;
 
-constexpr bool  kDefaultPositionEnabled = true;
-constexpr float kDefaultPosSens         = 1.0f;
-constexpr float kDefaultPosLimitX       = cameraunlock::PositionSettings{}.limit_x;
-constexpr float kDefaultPosLimitY       = cameraunlock::PositionSettings{}.limit_y;
-constexpr float kDefaultPosLimitZ       = cameraunlock::PositionSettings{}.limit_z;
-constexpr float kDefaultPosLimitZBack   = cameraunlock::PositionSettings{}.limit_z_back;
-constexpr float kDefaultPositionScale   = 8.0f;
-
-bool FileExists(const char* path) {
-    std::ifstream f(path);
-    return f.good();
+// A legacy hotkey code and its Ctrl+Shift chord switch as one key list: the code's binding
+// when it is a key code, then the chord. A code outside 0x01-0xFE imports as unbound (N1).
+std::string KeyList(int vk, bool chord, char letter, const char* key, std::vector<cfg::DroppedValue>& dropped) {
+    cfg::LegacyVirtualKeyToBindings(vk, "Hotkeys", key, dropped);
+    std::vector<KeyBinding> bindings;
+    if (vk >= 0x01 && vk <= 0xFE) bindings.push_back({KeyModifiers::kNone, vk});
+    if (chord) bindings.push_back({KeyModifiers::kCtrl | KeyModifiers::kShift, letter});
+    return cameraunlock::input::FormatKeyBindings(bindings);
 }
 
-void WriteDefaultIni(const char* path) {
-    cameraunlock::IniWriter w;
-    if (!w.Open(path)) return;
-    w.WriteComment(" Red Eclipse - Head Tracking configuration");
-    w.WriteComment(" Lives next to redeclipse.exe in bin\\amd64\\.");
-    w.WriteBlankLine();
-    w.WriteSection("General");
-    w.WriteBool("EnableOnStartup", kDefaultEnableOnStartup);
-    w.WriteInt("Port", kDefaultPort);
-    w.WriteInt("DataFreshnessMs", kDefaultDataFreshnessMs);
-    w.WriteComment(" Yaw mode: true = horizon-locked yaw (default), false = camera-local.");
-    w.WriteBool("WorldSpaceYaw", kDefaultWorldSpaceYaw);
-    w.WriteBlankLine();
-    w.WriteSection("Sensitivity");
-    w.WriteDouble("Yaw", kDefaultSensitivity);
-    w.WriteDouble("Pitch", kDefaultSensitivity);
-    w.WriteDouble("Roll", kDefaultSensitivity);
-    w.WriteBool("InvertYaw", kDefaultInvertYaw);
-    w.WriteBool("InvertPitch", kDefaultInvert);
-    w.WriteBool("InvertRoll", kDefaultInvertRoll);
-    w.WriteBlankLine();
-    w.WriteSection("Smoothing");
-    w.WriteComment(" Picked per connection from the tracker's source address, and applied to");
-    w.WriteComment(" rotation and position alike. 0 = no smoothing, 1 = heavy.");
-    w.WriteComment(" LocalSmoothing: tracker runs on this machine (loopback).");
-    w.WriteDouble("LocalSmoothing", kDefaultLocalSmoothing);
-    w.WriteComment(" RemoteSmoothing: tracker is a remote device on the network.");
-    w.WriteDouble("RemoteSmoothing", kDefaultRemoteSmoothing);
-    w.WriteDouble("DeadzoneDeg", kDefaultDeadzoneDeg);
-    w.WriteBlankLine();
-    w.WriteSection("Position");
-    w.WriteComment(" 6DOF positional tracking. PositionScale = world units per metre of head translation (Cube uses 8).");
-    w.WriteBool("Enabled", kDefaultPositionEnabled);
-    w.WriteDouble("SensitivityX", kDefaultPosSens);
-    w.WriteDouble("SensitivityY", kDefaultPosSens);
-    w.WriteDouble("SensitivityZ", kDefaultPosSens);
-    w.WriteDouble("LimitX", kDefaultPosLimitX);
-    w.WriteDouble("LimitY", kDefaultPosLimitY);
-    w.WriteDouble("LimitZ", kDefaultPosLimitZ);
-    w.WriteDouble("LimitZBack", kDefaultPosLimitZBack);
-    w.WriteComment(" Position uses the [Smoothing] LocalSmoothing / RemoteSmoothing values.");
-    w.WriteDouble("PositionScale", kDefaultPositionScale);
-    w.WriteBool("InvertX", kDefaultInvertPosX);
-    w.WriteBool("InvertY", kDefaultInvert);
-    w.WriteBool("InvertZ", kDefaultInvertPosZ);
-    w.WriteBlankLine();
-    w.WriteSection("Hotkeys");
-    w.WriteComment(" Virtual-key codes. Defaults: End (toggle), Page Up (cycle tracking mode), Page Down (yaw mode).");
-    w.WriteHex("Toggle", kDefaultVkToggle);
-    w.WriteHex("CycleMode", kDefaultVkCycleMode);
-    w.WriteHex("YawMode", kDefaultVkYawMode);
-    w.WriteComment(" Chord alternatives: Ctrl+Shift+Y (toggle), Ctrl+Shift+G (cycle tracking mode), Ctrl+Shift+H (yaw mode).");
-    w.WriteBool("ChordToggle", kDefaultChord);
-    w.WriteBool("ChordCycleMode", kDefaultChord);
-    w.WriteBool("ChordYawMode", kDefaultChord);
-    w.Close();
-}
-
-}
-
-bool Config::LoadOrCreate(const char* iniPath) {
-    if (!FileExists(iniPath)) {
-        WriteDefaultIni(iniPath);
+cfg::ImportResult Import(const cfg::LegacyInput& input, Config& out) {
+    legacy::Config c;
+    const legacy::ReadStatus status = legacy::Read(input.ansi_path.c_str(), c);
+    switch (status) {
+        case legacy::ReadStatus::OpenFailed:
+            return cfg::ImportResult::Refused("the file could not be opened, so head tracking stays off as it did before");
+        case legacy::ReadStatus::PortRefused:
+            return cfg::ImportResult::Refused(
+                "[General] Port is not a whole number from 1024 to 65535, which the last version refused too, "
+                "so head tracking stays off until the Port line is fixed");
+        case legacy::ReadStatus::Read:
+        case legacy::ReadStatus::Absent:
+            break;
     }
 
-    // Absent here means the write above did not produce a file the frozen reader could
-    // open. The build before the freeze went on to read whatever GetFileAttributesA
-    // found, which is the defaults, and stopped only where it found nothing.
-    legacy::Config read;
-    const legacy::ReadStatus status = legacy::Read(iniPath, read);
-    if (status == legacy::ReadStatus::Absent && !cameraunlock::IniReader().Open(iniPath)) {
-        Log::Line("ERROR: Failed to open INI: %s", iniPath);
-        return false;
-    }
-    if (status == legacy::ReadStatus::OpenFailed || status == legacy::ReadStatus::PortRefused) {
-        return false;
-    }
+    std::vector<cfg::DroppedValue> dropped;
+    std::vector<cfg::PoseShapingValue> shaping;
+    const Config defaults = MakeConfigTable().defaults();
 
-    enabled_on_startup = read.enabled_on_startup;
-    udp_port = read.udp_port;
-    data_freshness_ms = read.data_freshness_ms;
-    world_space_yaw = read.world_space_yaw;
+    out.enable_on_startup = c.enabled_on_startup;
+    out.udp_port = c.udp_port;
+    out.data_freshness_ms = c.data_freshness_ms;
+    out.world_space_yaw = c.world_space_yaw;
 
-    sens_yaw = read.sens_yaw;
-    sens_pitch = read.sens_pitch;
-    sens_roll = read.sens_roll;
-    invert_yaw = read.invert_yaw;
-    invert_pitch = read.invert_pitch;
-    invert_roll = read.invert_roll;
+    // [Position] Enabled chose only the mode the session started in: the cycle key reached
+    // every mode either way.
+    const cameraunlock::TrackingModeChannels mode = cameraunlock::EncodeTrackingMode(
+        c.position_enabled ? cameraunlock::TrackingMode::RotationAndPosition
+                           : cameraunlock::TrackingMode::RotationOnly);
+    out.rotation_enabled = mode.rotation_enabled;
+    out.position_enabled = mode.position_enabled;
 
-    local_smoothing = read.local_smoothing;
-    remote_smoothing = read.remote_smoothing;
-    deadzone_deg = read.deadzone_deg;
+    // The frozen reader already held both to finite values in [0, 1].
+    out.local_smoothing = c.local_smoothing;
+    out.position.local_smoothing = c.local_smoothing;
+    out.remote_smoothing = c.remote_smoothing;
+    out.position.remote_smoothing = c.remote_smoothing;
 
-    position_enabled = read.position_enabled;
-    pos_sens_x = read.pos_sens_x;
-    pos_sens_y = read.pos_sens_y;
-    pos_sens_z = read.pos_sens_z;
-    pos_limit_x = read.pos_limit_x;
-    pos_limit_y = read.pos_limit_y;
-    pos_limit_z = read.pos_limit_z;
-    pos_limit_z_back = read.pos_limit_z_back;
-    position_scale = read.position_scale;
-    invert_pos_x = read.invert_pos_x;
-    invert_pos_y = read.invert_pos_y;
-    invert_pos_z = read.invert_pos_z;
+    // LimitY bounded both directions, so it becomes both explicit values.
+    out.position.limit_x = cfg::LegacyFiniteOrDefault(c.pos_limit_x, defaults.position.limit_x, "Position", "LimitX", dropped);
+    const float limitY = cfg::LegacyFiniteOrDefault(c.pos_limit_y, defaults.position.limit_y, "Position", "LimitY", dropped);
+    out.position.limit_y = limitY;
+    out.position.limit_y_down = limitY;
+    out.position.limit_z = cfg::LegacyFiniteOrDefault(c.pos_limit_z, defaults.position.limit_z, "Position", "LimitZ", dropped);
+    out.position.limit_z_back =
+        cfg::LegacyFiniteOrDefault(c.pos_limit_z_back, defaults.position.limit_z_back, "Position", "LimitZBack", dropped);
 
-    vk_toggle = read.vk_toggle;
-    vk_cycle_mode = read.vk_cycle_mode;
-    vk_yaw_mode = read.vk_yaw_mode;
-    chord_toggle = read.chord_toggle;
-    chord_cycle_mode = read.chord_cycle_mode;
-    chord_yaw_mode = read.chord_yaw_mode;
+    // The shipped yaw and roll inversions and the 8 units to the metre are the axis
+    // conversion itself, now in camera_hook.cpp; every other shipped value was identity. A
+    // value the player changed is dropped.
+    const auto shape = [&](auto value, auto shipped, const char* section, const char* key) {
+        cfg::LegacyPoseShaping(value, shipped, section, key, shaping, dropped);
+    };
+    shape(c.sens_yaw, legacy::kDefaultSensitivity, "Sensitivity", "Yaw");
+    shape(c.sens_pitch, legacy::kDefaultSensitivity, "Sensitivity", "Pitch");
+    shape(c.sens_roll, legacy::kDefaultSensitivity, "Sensitivity", "Roll");
+    shape(c.invert_yaw, legacy::kDefaultInvertYaw, "Sensitivity", "InvertYaw");
+    shape(c.invert_pitch, legacy::kDefaultInvert, "Sensitivity", "InvertPitch");
+    shape(c.invert_roll, legacy::kDefaultInvertRoll, "Sensitivity", "InvertRoll");
+    shape(c.deadzone_deg, legacy::kDefaultDeadzoneDeg, "Smoothing", "DeadzoneDeg");
+    shape(c.pos_sens_x, legacy::kDefaultPosSens, "Position", "SensitivityX");
+    shape(c.pos_sens_y, legacy::kDefaultPosSens, "Position", "SensitivityY");
+    shape(c.pos_sens_z, legacy::kDefaultPosSens, "Position", "SensitivityZ");
+    shape(c.position_scale, legacy::kDefaultPositionScale, "Position", "PositionScale");
+    shape(c.invert_pos_x, legacy::kDefaultInvertPosX, "Position", "InvertX");
+    shape(c.invert_pos_y, legacy::kDefaultInvert, "Position", "InvertY");
+    shape(c.invert_pos_z, legacy::kDefaultInvertPosZ, "Position", "InvertZ");
 
-    return true;
+    out.toggle_key_name = KeyList(c.vk_toggle, c.chord_toggle, 'Y', "Toggle", dropped);
+    out.cycle_tracking_mode_key_name = KeyList(c.vk_cycle_mode, c.chord_cycle_mode, 'G', "CycleMode", dropped);
+    out.yaw_mode_key_name = KeyList(c.vk_yaw_mode, c.chord_yaw_mode, 'H', "YawMode", dropped);
+
+    return status == legacy::ReadStatus::Absent ? cfg::ImportResult::Absent(std::move(dropped), std::move(shaping))
+                                                : cfg::ImportResult::Imported(std::move(dropped), std::move(shaping));
 }
 
+}  // namespace
+
+cfg::ConfigTable<Config> MakeConfigTable() {
+    using C = cfg::schema::Concept;
+    cfg::ConfigTable<Config> table = cfg::HeadTrackingConfigTable<Config>(
+        {C::UdpPort, C::EnableOnStartup, C::WorldSpaceYaw, C::RotationEnabled, C::DataFreshnessMs,
+         C::LocalSmoothing, C::RemoteSmoothing, C::PositionEnabled, C::PositionLimitX, C::PositionLimitY,
+         C::PositionLimitYDown, C::PositionLimitZ, C::PositionLimitZBack, C::ToggleKey, C::CycleTrackingModeKey,
+         C::YawModeKey});
+    table.Select(C::WorldSpaceYaw).Writable()
+        .Select(C::RotationEnabled).Writable()
+        .Select(C::PositionEnabled).Writable();
+    return table;
 }
+
+cfg::LegacyImport<Config> MakeLegacyImport() {
+    return {&Import, legacy::ReadKeys()};
+}
+
+cfg::ConfigOwnerOptions<Config> MakeConfigOwnerOptions(const std::wstring& path) {
+    cfg::ConfigOwnerOptions<Config> options;
+    options.path = path;
+    options.table = MakeConfigTable();
+    options.import = MakeLegacyImport();
+    options.header.display_name = kConfigDisplayName;
+    return options;
+}
+
+}  // namespace RedEclipseHeadTracking

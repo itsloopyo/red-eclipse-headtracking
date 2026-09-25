@@ -3,6 +3,7 @@
 #include "logging.h"
 
 #include "cameraunlock/math/smoothing_utils.h"
+#include "cameraunlock/tracking/tracking_mode.h"
 
 #include <chrono>
 #include <cstdint>
@@ -12,58 +13,29 @@ namespace RedEclipseHeadTracking {
 bool TrackingRuntime::Start(const Config& cfg) {
     m_cfg = cfg;
 
-    cameraunlock::SensitivitySettings sens;
-    sens.yaw = m_cfg.sens_yaw;
-    sens.pitch = m_cfg.sens_pitch;
-    sens.roll = m_cfg.sens_roll;
-    sens.invert_yaw = m_cfg.invert_yaw;
-    sens.invert_pitch = m_cfg.invert_pitch;
-    sens.invert_roll = m_cfg.invert_roll;
-    m_session.GetProcessor().SetSensitivity(sens);
-
-    cameraunlock::DeadzoneSettings dz;
-    dz.yaw = dz.pitch = dz.roll = m_cfg.deadzone_deg;
-    m_session.GetProcessor().SetDeadzone(dz);
-
-    cameraunlock::PositionSettings pos;
-    pos.sensitivity_x = m_cfg.pos_sens_x;
-    pos.sensitivity_y = m_cfg.pos_sens_y;
-    pos.sensitivity_z = m_cfg.pos_sens_z;
-    pos.limit_x = m_cfg.pos_limit_x;
-    // The clamp is [-limit_y_down, +limit_y] and limit_y_down carries its own
-    // default, so mirror the one configured vertical limit the way
-    // PositionSettings::Symmetric does. Left unset, raising LimitY widened the
-    // upward budget only and downward travel stayed pinned at 0.20m.
-    pos.limit_y = m_cfg.pos_limit_y;
-    pos.limit_y_down = m_cfg.pos_limit_y;
-    pos.limit_z = m_cfg.pos_limit_z;
-    pos.limit_z_back = m_cfg.pos_limit_z_back;
-    pos.invert_x = m_cfg.invert_pos_x;
-    pos.invert_y = m_cfg.invert_pos_y;
-    pos.invert_z = m_cfg.invert_pos_z;
-    m_session.GetPositionProcessor().SetSettings(pos);
-
     // After SetSettings: the session writes both smoothing values into the
     // position settings too, so a later settings rebuild would drop them. The
     // session feeds the connection flag that picks between them, from the
     // receiver's source address, every update.
+    m_session.GetPositionProcessor().SetSettings(m_cfg.position);
     m_session.SetLocalSmoothing(m_cfg.local_smoothing);
     m_session.SetRemoteSmoothing(m_cfg.remote_smoothing);
 
-    m_enabled.store(m_cfg.enabled_on_startup, std::memory_order_relaxed);
+    m_enabled.store(m_cfg.enable_on_startup, std::memory_order_relaxed);
     m_worldSpaceYaw.store(m_cfg.world_space_yaw, std::memory_order_relaxed);
-    m_session.SetMode(m_cfg.position_enabled
-                          ? cameraunlock::TrackingMode::RotationAndPosition
-                          : cameraunlock::TrackingMode::RotationOnly);
+    // The table never loads a pair that names no mode: it reads both as their
+    // defaults instead.
+    m_session.SetMode(cameraunlock::DecodeTrackingMode(m_cfg.rotation_enabled, m_cfg.position_enabled).value());
 
     m_receiver.SetLog([](const std::string& msg) {
         Log::Line("UDP: %s", msg.c_str());
     });
 
-    if (m_receiver.Start(m_cfg.udp_port)) {
-        Log::Line("UDP receiver listening on port %u", m_cfg.udp_port);
+    const uint16_t port = static_cast<uint16_t>(m_cfg.udp_port);
+    if (m_receiver.Start(port)) {
+        Log::Line("UDP receiver listening on port %u", port);
     } else {
-        Log::Line("WARN: UDP receiver did not bind immediately on port %u; background retry active", m_cfg.udp_port);
+        Log::Line("WARN: UDP receiver did not bind immediately on port %u; background retry active", port);
     }
 
     return true;
@@ -101,8 +73,9 @@ void TrackingRuntime::ToggleEnabled() {
     Log::Line("Tracking %s", !prev ? "enabled" : "disabled");
 }
 
-void TrackingRuntime::CycleTrackingMode() {
-    switch (m_session.CycleMode()) {
+cameraunlock::TrackingMode TrackingRuntime::CycleTrackingMode() {
+    const cameraunlock::TrackingMode mode = m_session.CycleMode();
+    switch (mode) {
         case cameraunlock::TrackingMode::RotationAndPosition:
             Log::Line("Tracking mode: rotation + position (6DOF)");
             break;
@@ -113,12 +86,14 @@ void TrackingRuntime::CycleTrackingMode() {
             Log::Line("Tracking mode: position only");
             break;
     }
+    return mode;
 }
 
-void TrackingRuntime::ToggleYawMode() {
+bool TrackingRuntime::ToggleYawMode() {
     bool prev = m_worldSpaceYaw.load(std::memory_order_relaxed);
     m_worldSpaceYaw.store(!prev, std::memory_order_relaxed);
     Log::Line("Yaw mode: %s", !prev ? "world-space (horizon-locked)" : "camera-local");
+    return !prev;
 }
 
 FrameSample TrackingRuntime::SampleFrame() {

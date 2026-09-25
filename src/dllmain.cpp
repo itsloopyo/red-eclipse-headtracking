@@ -6,12 +6,15 @@
 #include "path_utils.h"
 #include "tracking_runtime.h"
 
+#include "cameraunlock/config/config_owner.h"
 #include "cameraunlock/diagnostics/crash_handler.h"
 #include "cameraunlock/memory/pe_fingerprint.h"
+#include "cameraunlock/tracking/tracking_mode.h"
 
 #include <windows.h>
 #include <process.h>
 
+#include <optional>
 #include <string>
 
 namespace {
@@ -29,6 +32,10 @@ volatile LONG g_shutdown = 0;
 RedEclipseHeadTracking::GameSymbols g_symbols;
 RedEclipseHeadTracking::TrackingRuntime g_tracking;
 RedEclipseHeadTracking::Hotkeys g_hotkeys;
+
+// The one reader and writer of the config file. The hotkey thread saves
+// through it after InitThread has loaded it.
+std::optional<cameraunlock::config::ConfigOwner<RedEclipseHeadTracking::Config>> g_configOwner;
 
 // Red Eclipse calls SteamAPI_RestartAppIfNecessary during startup
 // (engine/cdpi.cpp). Started outside the Steam client it hands off to Steam,
@@ -55,6 +62,30 @@ bool WillRelaunchThroughSteam() {
         }
     }
     return true;
+}
+
+void LogSave(const cameraunlock::config::ConfigSaveResult& saved) {
+    using namespace RedEclipseHeadTracking;
+    if (saved.status == cameraunlock::config::ConfigSaveStatus::Saved) return;
+    for (const std::string& line : saved.log) Log::Line("%s", line.c_str());
+    Log::Line("WARN: %s", saved.reason.c_str());
+}
+
+// Each toggle applies its new state first, then saves it. End is not here: it
+// changes the session only, and EnableOnStartup decides the next start.
+void CycleTrackingModeAndSave() {
+    const cameraunlock::TrackingModeChannels channels =
+        cameraunlock::EncodeTrackingMode(g_tracking.CycleTrackingMode());
+    LogSave(g_configOwner->Save([channels](RedEclipseHeadTracking::Config& c) {
+        c.rotation_enabled = channels.rotation_enabled;
+        c.position_enabled = channels.position_enabled;
+    }));
+}
+
+void ToggleYawModeAndSave() {
+    const bool worldSpace = g_tracking.ToggleYawMode();
+    LogSave(g_configOwner->Save(
+        [worldSpace](RedEclipseHeadTracking::Config& c) { c.world_space_yaw = worldSpace; }));
 }
 
 void LogFingerprint(HMODULE gameModule) {
@@ -101,16 +132,23 @@ unsigned __stdcall InitThread(void*) {
     Log::Line("%s v%s attached to %s", kModName, kModVersion, kGameExe);
     LogFingerprint(gameModule);
 
-    Config cfg;
-    std::string iniPath = GetModulePath("RedEclipseHeadTracking.ini");
-    if (!cfg.LoadOrCreate(iniPath.c_str())) {
+    // The process that hands off to Steam returned above, so of the two that
+    // load the ASI on a relaunch, only the one that keeps running opens the file.
+    g_configOwner.emplace(MakeConfigOwnerOptions(GetModulePathW(kConfigFileName)));
+    const cameraunlock::config::ConfigLoadResult<Config> loaded = g_configOwner->Load();
+    for (const std::string& line : loaded.log) Log::Line("%s", line.c_str());
+    Log::Line("Config: %s", cameraunlock::config::ConfigLoadStatusName(loaded.status));
+    if (!loaded.reason.empty()) Log::Line("WARN: %s", loaded.reason.c_str());
+    // The build this file was written for refused it and did not start, so
+    // this one does the same until the player fixes it.
+    if (loaded.status == cameraunlock::config::ConfigLoadStatus::LegacyRefused) {
         Log::Line("ERROR: Config load failed");
         return 1;
     }
-    Log::Line("Config: port=%u enabled=%d localSmoothing=%.2f remoteSmoothing=%.2f sens=(%.2f,%.2f,%.2f)",
-              cfg.udp_port, cfg.enabled_on_startup ? 1 : 0,
-              cfg.local_smoothing, cfg.remote_smoothing,
-              cfg.sens_yaw, cfg.sens_pitch, cfg.sens_roll);
+    const Config& cfg = loaded.config;
+    Log::Line("Config: port=%d enabled=%d localSmoothing=%.2f remoteSmoothing=%.2f",
+              cfg.udp_port, cfg.enable_on_startup ? 1 : 0,
+              cfg.local_smoothing, cfg.remote_smoothing);
 
     // Every address the mod uses comes from the PDB Red Eclipse ships beside
     // its executable. If that resolve fails there is nothing safe to hook, so
@@ -127,14 +165,14 @@ unsigned __stdcall InitThread(void*) {
 
     if (!g_hotkeys.Start(cfg,
                          [] { g_tracking.ToggleEnabled(); },
-                         [] { g_tracking.CycleTrackingMode(); },
-                         [] { g_tracking.ToggleYawMode(); })) {
+                         [] { CycleTrackingModeAndSave(); },
+                         [] { ToggleYawModeAndSave(); })) {
         Log::Line("ERROR: Hotkeys start failed");
         g_tracking.Stop();
         return 1;
     }
 
-    if (!InstallCameraHook(g_symbols, g_tracking, cfg)) {
+    if (!InstallCameraHook(g_symbols, g_tracking)) {
         Log::Line("ERROR: Camera hook installation failed");
         g_hotkeys.Stop();
         g_tracking.Stop();

@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- `RedEclipseHeadTracking.ini` has a new layout. The first time this version starts, it converts the file once into the new layout and keeps the file as it was beside it as `RedEclipseHeadTracking.ini.pre-canonical`. `RedEclipseHeadTracking.ini.pre-canonical.last`, when present, is the file as it was before the most recent conversion: the mod converts the file again when it finds the older layout later, for example after an older version of the mod rewrote it.
+- Comments, and keys the mod never read, are not carried over. Nor are these, where your old file had them:
+  - A sensitivity, scale, deadzone, response curve or axis inversion you changed from its default. Set these in your tracker instead.
+- Hotkeys are written as key names, and each hotkey lists every key that triggers it, the Ctrl+Shift chord included: `ToggleKey=End, Ctrl+Shift+Y`. The conversion carries over each key you had bound and each chord you had switched on or off, and now each one can be changed or removed like any other key.
+- Settings moved: `[General] Port` is `[Network] UdpPort`, the `[Position]` limits are `PositionLimitX`, `PositionLimitY`, `PositionLimitYDown`, `PositionLimitZ` and `PositionLimitZBack`, and `[Hotkeys] Toggle`, `CycleMode` and `YawMode` with `ChordToggle`, `ChordCycleMode` and `ChordYawMode` are `ToggleKey`, `CycleTrackingModeKey` and `YawModeKey`. `LimitY` bounded both directions, so it becomes both `PositionLimitY` and `PositionLimitYDown`, which can now be set apart. `[Position] Enabled` chose the tracking mode at startup; that is now the pair `RotationEnabled` and `PositionEnabled`. The conversion carries every one of these values over.
+- The tracking mode that Page Up or Ctrl+Shift+G selects, and the yaw mode that Page Down or Ctrl+Shift+H selects, are now saved as soon as you change them and come back at the next start. End still changes the current session only.
+- An older version of the mod may not read the new layout correctly. It reads a key that moved as its own default, and it can misread a hotkey or another value that is now written as a name. To go back to an older version, first copy `RedEclipseHeadTracking.ini.pre-canonical` back over `RedEclipseHeadTracking.ini`, which restores the old file.
+- `uninstall.cmd` keeps `bin\amd64\RedEclipseHeadTracking.ini` and its `.pre-canonical` copies, so your settings survive a reinstall.
+- A position limit that is not a finite number (`nan`, `inf`) is converted to its default, and a hotkey code outside `0x01` to `0xFE` is not carried over, which leaves that key unbound. The log names each one.
+- A file whose `DataFreshnessMs` is below 1, or whose position limits include one below 0 or above 10, is not converted, because the new layout cannot hold those values. The mod runs on the file as earlier versions read it, saves nothing that session, and says so in the log at every start until the value is fixed.
+- When there is no `RedEclipseHeadTracking.ini` and the mod cannot create one because `bin\amd64` cannot be written, the mod now starts on its default settings and saves nothing that session. Earlier versions did not start at all in that case.
+- Since v0.3.1, `[General] AdsMode`, `[Hotkeys] AdsMode` and `[Hotkeys] ChordAdsMode` are no longer read, and neither Insert nor Ctrl+Shift+U cycles an ADS mode: head tracking carries on through the zoom in every case, and the lean eases out while zoomed (1dba8be).
+
+### Removed
+
+- The sensitivity, scale, deadzone and axis inversion settings: `[Sensitivity] Yaw`, `Pitch`, `Roll`, `InvertYaw`, `InvertPitch` and `InvertRoll`, `[Smoothing] DeadzoneDeg`, and `[Position] SensitivityX`, `SensitivityY`, `SensitivityZ`, `PositionScale`, `InvertX`, `InvertY` and `InvertZ`. Set these in your tracker app instead. The yaw and roll inversions and the 8 world units per metre the mod shipped with are now part of its own axis conversion, so with these settings at their shipped values the camera moves as it did before.
+
 ## [0.3.1] - 2026-09-13
 
 ### Added

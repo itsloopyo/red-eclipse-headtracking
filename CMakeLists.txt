@@ -101,18 +101,44 @@ if(HEADTRACKING_BUILD_TESTS)
 
     add_executable(config_differential_test
         tests/config_differential/differential_tests.cpp
+        src/config.cpp
         src/legacy_config/legacy_config.cpp
     )
     target_include_directories(config_differential_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/tests/config_differential)
     target_compile_definitions(config_differential_test PRIVATE
-        RE_DIFFERENTIAL_INPUTS="${CMAKE_CURRENT_SOURCE_DIR}/tests/config_differential/inputs")
+        RE_DIFFERENTIAL_INPUTS="${CMAKE_CURRENT_SOURCE_DIR}/tests/config_differential/inputs"
+        RE_COMMITTED_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/config/RedEclipseHeadTracking.ini")
     target_link_libraries(config_differential_test PRIVATE cameraunlock re_config_oracle)
     if(MSVC)
         target_compile_options(config_differential_test PRIVATE /W4 /WX /permissive-)
     endif()
     add_test(NAME config_differential COMMAND config_differential_test)
+
+    # Core's canonical config lint over the committed file and every file the differential
+    # test migrated, which it writes beside itself under migrated\.
+    add_test(NAME config_lint COMMAND node
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/config_differential/lint-migrated.mjs
+        $<TARGET_FILE_DIR:config_differential_test>/migrated)
+    set_tests_properties(config_lint PROPERTIES DEPENDS config_differential)
+
+    # The committed config against the table, the toggles' saves, and the axis conversion that
+    # replaced the shipped pose settings. `--render-config <path>` makes it write the committed
+    # file instead (pixi run render-config).
+    add_executable(config_tests
+        tests/config_tests.cpp
+        src/config.cpp
+        src/legacy_config/legacy_config.cpp
+    )
+    target_include_directories(config_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(config_tests PRIVATE
+        RE_COMMITTED_CONFIG="${CMAKE_CURRENT_SOURCE_DIR}/config/RedEclipseHeadTracking.ini")
+    target_link_libraries(config_tests PRIVATE cameraunlock)
+    if(MSVC)
+        target_compile_options(config_tests PRIVATE /W4 /WX /permissive-)
+    endif()
+    add_test(NAME config_tests COMMAND config_tests)
 
     # The frozen reader, the core sources it compiles, the oracle and the first-run inputs
     # against the hashes tests/config_differential/frozen.tsv records.

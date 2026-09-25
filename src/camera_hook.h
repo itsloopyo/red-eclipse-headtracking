@@ -1,6 +1,5 @@
 #pragma once
 
-#include "config.h"
 #include "game_symbols.h"
 #include "tracking_runtime.h"
 
@@ -18,7 +17,7 @@ namespace RedEclipseHeadTracking {
 //
 // Aim, projectiles and hit detection all run off the clean camera; only what
 // the player sees moves with their head.
-bool InstallCameraHook(const GameSymbols& symbols, TrackingRuntime& tracking, const Config& config);
+bool InstallCameraHook(const GameSymbols& symbols, TrackingRuntime& tracking);
 void RemoveCameraHook();
 
 }  // namespace RedEclipseHeadTracking

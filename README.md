@@ -9,8 +9,8 @@ An unofficial head tracking mod for Red Eclipse that moves the view with your he
 - **Decoupled look and aim.** Turning your head swings the view without moving
   your aim. The game's shooting, hit detection and raycasts all run off the
   clean, mouse-controlled camera - the head transform only reaches the renderer.
-- **6DOF.** Lean and move your head to shift the viewpoint, with per-axis
-  sensitivity, travel limits and smoothing.
+- **6DOF.** Lean and move your head to shift the viewpoint, with travel limits
+  and smoothing.
 - **Works with any OpenTrack compatible tracker** - free options available for PC, iOS and Android
 
 ## A note on multiplayer
@@ -135,8 +135,14 @@ view sits off to one side, centre it in the tracker.
 | Cycle tracking mode (6DOF / rotation only / position only) | `Page Up` | `Ctrl+Shift+G` |
 | Toggle yaw mode (horizon-locked / camera-local) | `Page Down` | `Ctrl+Shift+H` |
 
-The chords exist for keyboards without a nav cluster; both sets are always
-active.
+The chords are there for keyboards without a nav cluster. Each action's keys
+are a list in `RedEclipseHeadTracking.ini`, so any of them, the chords
+included, can be changed or removed there.
+
+The tracking mode and the yaw mode you pick are saved to
+`RedEclipseHeadTracking.ini` as soon as you pick them, and come back the next
+time the game starts. `End` changes the current session only: at startup head
+tracking is on or off as `EnableOnStartup` says.
 
 There is no recentre key. Your tracker app owns the centre: use its own control
 (opentrack's Center bind, the CENTER button in Headcam, SteamVR's reset) and the
@@ -151,35 +157,88 @@ eases out while zoomed, because it would move your eye off the aim.
 
 ## Configuration
 
-`bin\amd64\RedEclipseHeadTracking.ini`, written with defaults on first run.
+Apart from creating or converting the file at startup, the mod writes to it only
+when a hotkey changes the tracking mode or the yaw mode.
 
-| Setting | Default | Notes |
-|---------|---------|-------|
-| `General.EnableOnStartup` | `true` | |
-| `General.Port` | `4242` | OpenTrack's standard port |
-| `General.WorldSpaceYaw` | `true` | Horizon-locked yaw |
-| `Sensitivity.Yaw` / `Pitch` / `Roll` | `1.0` | |
-| `Sensitivity.InvertYaw` | `true` | Matches the tracker's sign to the engine's |
-| `Sensitivity.InvertPitch` | `false` | |
-| `Sensitivity.InvertRoll` | `true` | Matches the tracker's sign to the engine's |
-| `Smoothing.LocalSmoothing` | `0.0` | Tracker on this machine (loopback). 0 = none, 1 = heavy |
-| `Smoothing.RemoteSmoothing` | `0.15` | Tracker on a remote network device (e.g. a phone) |
-| `Smoothing.DeadzoneDeg` | `0.0` | |
-| `Position.Enabled` | `true` | |
-| `Position.SensitivityX/Y/Z` | `1.0` | |
-| `Position.LimitX` | `0.30` | Metres, symmetric |
-| `Position.LimitY` | `0.20` | Metres, symmetric |
-| `Position.LimitZ` | `0.40` | Metres forward |
-| `Position.LimitZBack` | `0.10` | Metres back |
-| `Position.PositionScale` | `8.0` | World units per metre - Cube's world is 8 to the metre |
-| `Hotkeys.*` | see table above | Virtual-key codes in hex |
+<!-- cameraunlock:config -->
+The mod reads its settings from `bin\amd64\RedEclipseHeadTracking.ini` in the game folder, and creates the file when it starts and finds none. Edit it with any text editor.
+
+Earlier versions of the mod used an older layout for this file. The first time this version starts, it converts the file once into the layout below and keeps the file as it was beside it as `RedEclipseHeadTracking.ini.pre-canonical`. `RedEclipseHeadTracking.ini.pre-canonical.last`, when present, is the file as it was before the most recent conversion: the mod converts the file again when it finds the older layout later, for example after an older version of the mod rewrote it.
+
+Comments, and keys the mod never read, are not carried over. Nor are these, where your old file had them:
+
+- Reticle settings, and a key that toggled the reticle.
+- A sensitivity, scale, deadzone, response curve or axis inversion you changed from its default. Set these in your tracker instead.
+- The setting for a feature that earlier versions shipped switched off while it was untested. It now follows the mod's default.
+
+An older version of the mod may not read the new layout correctly. It reads a key that moved as its own default, and it can misread a hotkey or another value that is now written as a name. To go back to an older version, first copy `RedEclipseHeadTracking.ini.pre-canonical` back over `RedEclipseHeadTracking.ini`, which restores the old file.
+
+With every setting at its default, the file reads:
+
+```ini
+; Red Eclipse head tracking settings.
+; Comments start with ; and go on their own line. Text after a value is part of the value.
+; Hotkeys are key names such as End, PageUp or Ctrl+Shift+Y. Separate several with commas; leave empty for none.
+
+[CameraUnlock]
+; Written by the mod. Leave this section in place.
+ConfigFormat=1
+
+[Network]
+; UDP port the mod receives tracker data on (OpenTrack protocol).
+UdpPort=4242
+
+[General]
+; true: head tracking is on when the game starts. ToggleKey turns it on and off.
+EnableOnStartup=true
+; true: yaw turns around the world's up axis. false: around the camera's own up axis.
+WorldSpaceYaw=true
+; true: turning your head turns the view.
+; Tracking mode at startup, with PositionEnabled. The mode hotkey changes both.
+RotationEnabled=true
+; Milliseconds a tracker packet stays current. Once the tracker has sent nothing
+; for this long, the mod stops following it until data arrives again.
+DataFreshnessMs=500
+
+[Smoothing]
+; Smoothing when the tracker runs on this PC. 0 is the least, 1 the most.
+LocalSmoothing=0.0
+; Smoothing when the tracker is another device on the network, such as a phone.
+; 0 is the least, 1 the most.
+RemoteSmoothing=0.15
+
+[Position]
+; true: moving your head moves the view.
+; Tracking mode at startup, with RotationEnabled. The mode hotkey changes both.
+PositionEnabled=true
+; How far, in metres, leaning left or right can move the view.
+PositionLimitX=0.3
+; How far, in metres, raising your head can move the view.
+PositionLimitY=0.2
+; How far, in metres, lowering your head can move the view.
+PositionLimitYDown=0.2
+; How far, in metres, leaning forward can move the view.
+PositionLimitZ=0.4
+; How far, in metres, leaning back can move the view.
+PositionLimitZBack=0.1
+
+[Hotkeys]
+; Turns head tracking on and off.
+ToggleKey=End, Ctrl+Shift+Y
+; Changes the tracking mode: rotation and position, rotation only, position only.
+CycleTrackingModeKey=PageUp, Ctrl+Shift+G
+; Switches yaw between the world's up axis and the camera's own (WorldSpaceYaw).
+YawModeKey=PageDown, Ctrl+Shift+H
+```
+<!-- /cameraunlock:config -->
 
 Smoothing is picked automatically per connection from the tracker's source
 address: `LocalSmoothing` for a tracker running on this machine, `RemoteSmoothing`
 for a device on the network. Both cover rotation and position, and both accept
 0.0 to 1.0.
 
-If an axis moves the wrong way, flip the matching `Invert*` value.
+There are no sensitivity, inversion, deadzone or scale settings: the mod applies
+the pose your tracker sends, so set those in the tracker.
 
 ## Troubleshooting
 
@@ -221,7 +280,8 @@ uninstall.cmd
 ```
 
 This removes the mod and, if this installer put it there, the ASI loader. Your
-`RedEclipseHeadTracking.ini` is left alone so a reinstall keeps your settings.
+`RedEclipseHeadTracking.ini`, and the `.pre-canonical` copies the settings
+conversion kept beside it, are left alone so a reinstall keeps your settings.
 
 ## Building from source
 
@@ -236,13 +296,14 @@ pixi run install          # deploy to your game folder for testing
 pixi run package          # build the release ZIPs
 ```
 
-The host-side maths tests, including the crosshair projection checks, run with:
+The host-side tests, including the crosshair projection checks and the test
+that holds the settings conversion to what the published builds read, run with:
 
 ```
-cmake -B build-tests -A x64 -DHEADTRACKING_BUILD_TESTS=ON
-cmake --build build-tests --config Release
-ctest --test-dir build-tests -C Release --output-on-failure
+pixi run test
 ```
+
+They need Node.js on the path for the settings file lint.
 
 ## Community & Support
 

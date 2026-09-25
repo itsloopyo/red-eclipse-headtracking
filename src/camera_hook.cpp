@@ -2,6 +2,7 @@
 
 #include "head_transform.h"
 #include "ads.h"
+#include "engine_pose.h"
 #include "cameraunlock/camera/zoom_compensation.h"
 #include "logging.h"
 
@@ -13,7 +14,6 @@ namespace {
 
 const GameSymbols* g_symbols = nullptr;
 TrackingRuntime* g_tracking = nullptr;
-Config g_config;
 AdsLean g_adsLean;
 
 void (*g_originalSetCamMatrix)() = nullptr;
@@ -109,20 +109,7 @@ void HookedRecomputeCamera() {
         aiming, GetTickCount64(),
         TrackedPose{sample.pitch, sample.yaw, sample.roll, sample.pos_x, sample.pos_y, sample.pos_z});
 
-    HeadPose pose;
-    pose.yaw_deg = cameraunlock::camera::ScaleAngleForZoom(tracked.yaw, zoom);
-    pose.pitch_deg = cameraunlock::camera::ScaleAngleForZoom(tracked.pitch, zoom);
-    pose.roll_deg = tracked.roll;
-    if (sample.has_position) {
-        // The tracker's x and z run opposite to Cube's camera axes. Correcting
-        // it here rather than through the processor's InvertX/InvertZ keeps the
-        // asymmetric Z limits pointing the way they are documented: the
-        // generous LimitZ on leaning forward, the restricted LimitZBack on
-        // leaning back. Those are clamped before the sample ever reaches here.
-        pose.x = -tracked.x * g_config.position_scale * zoom;
-        pose.y = tracked.y * g_config.position_scale * zoom;
-        pose.z = -tracked.z * g_config.position_scale * zoom;
-    }
+    const HeadPose pose = ToEnginePose(tracked, sample.has_position, zoom);
 
     g_headTransform = BuildHeadTransform(pose, g_cleanCamMatrix, g_tracking->IsWorldSpaceYaw());
     g_headActive = true;
@@ -215,12 +202,11 @@ bool g_installed = false;
 
 }  // namespace
 
-bool InstallCameraHook(const GameSymbols& symbols, TrackingRuntime& tracking, const Config& config) {
+bool InstallCameraHook(const GameSymbols& symbols, TrackingRuntime& tracking) {
     if (g_installed) return true;
 
     g_symbols = &symbols;
     g_tracking = &tracking;
-    g_config = config;
 
     MH_STATUS status = MH_Initialize();
     if (status != MH_OK) {
