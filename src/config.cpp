@@ -75,8 +75,8 @@ cfg::ImportResult Import(const cfg::LegacyInput& input, Config& out) {
         cfg::LegacyFiniteOrDefault(c.pos_limit_z_back, defaults.position.limit_z_back, "Position", "LimitZBack", dropped);
 
     // The shipped yaw and roll inversions and the 8 units to the metre are the axis
-    // conversion itself, now in camera_hook.cpp; every other shipped value was identity. A
-    // value the player changed is dropped.
+    // conversion itself, now in ToEnginePose (engine_pose.h); every other shipped value was
+    // identity. A value the player changed is dropped.
     const auto shape = [&](auto value, auto shipped, const char* section, const char* key) {
         cfg::LegacyPoseShaping(value, shipped, section, key, shaping, dropped);
     };
