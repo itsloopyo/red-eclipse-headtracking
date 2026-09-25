@@ -11,17 +11,16 @@ namespace RedEclipseHeadTracking {
 // divides by 8 to print metres.
 constexpr float kUnitsPerMetre = 8.0f;
 
-// The tracker's pose on Cube's camera axes and in world units, scaled so a zoom
-// does not magnify it. This is the whole of the conversion between the two
-// conventions, and the only place any axis is negated.
+// The tracker's pose in HeadPose's convention and in world units, scaled so a
+// zoom does not magnify it. BuildHeadTransform then maps HeadPose into Cube's
+// camera space, negating roll and z once more on the way.
 //
-// The head transform is built with right-handed rotations about Cube's camera
-// axes, which run opposite to the tracker on yaw and roll. The tracker's x and
-// z run opposite to Cube's camera axes too. Correcting those here rather than
-// through the processor's position inversion keeps the asymmetric z limits
-// pointing the way they are documented: the generous PositionLimitZ on leaning
-// forward, the restricted PositionLimitZBack on leaning back. Those are clamped
-// before the pose reaches here.
+// HeadPose runs opposite to the tracker on yaw, roll, x and z, so those four
+// are negated here, and 8 world units make a metre. Correcting x and z here
+// rather than through the processor's position inversion keeps the asymmetric
+// z limits pointing the way they are documented: the generous PositionLimitZ
+// on leaning forward, the restricted PositionLimitZBack on leaning back. Those
+// are clamped before the pose reaches here.
 inline HeadPose ToEnginePose(const TrackedPose& tracked, bool hasPosition, float zoom) {
     HeadPose pose;
     pose.yaw_deg = cameraunlock::camera::ScaleAngleForZoom(-tracked.yaw, zoom);
