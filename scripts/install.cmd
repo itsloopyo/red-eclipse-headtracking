@@ -23,6 +23,10 @@ set "ASI_LOADER_NAME=winmm.dll"
 :: the unconditional copy and resets every key on every update.
 set "MOD_SEED_FILES="
 set "MOD_CONTROLS=Controls: End or Ctrl+Shift+Y toggle,&echo Page Up or Ctrl+Shift+G cycle tracking mode, Page Down or Ctrl+Shift+H yaw mode."
+:: Not used by this mod. Set blank so a value another mod's wrapper left in
+:: the same console does not reach the body.
+set "ASI_SUBDIR="
+set "ASI_LOADER_VERSION="
 :: --- END CONFIG BLOCK ---
 
 :: Pin delayed expansion off before `%*` is expanded on the `call` below.
