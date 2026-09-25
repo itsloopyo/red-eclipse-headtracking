@@ -13,7 +13,7 @@
 - An older version of the mod may not read the new layout correctly. It reads a key that moved as its own default, and it can misread a hotkey or another value that is now written as a name. To go back to an older version, first copy `RedEclipseHeadTracking.ini.pre-canonical` back over `RedEclipseHeadTracking.ini`, which restores the old file.
 - `uninstall.cmd` keeps `bin\amd64\RedEclipseHeadTracking.ini` and its `.pre-canonical` copies, so your settings survive a reinstall.
 - A position limit that is not a finite number (`nan`, `inf`) is converted to its default, and a hotkey code outside `0x01` to `0xFE` is not carried over, which leaves that key unbound. The log names each one.
-- A file whose `DataFreshnessMs` is below 1, or whose position limits include one below 0 or above 10, is not converted, because the new layout cannot hold those values. The mod runs on the file as earlier versions read it, saves nothing that session, and says so in the log at every start until the value is fixed.
+- A file whose `DataFreshnessMs` is below 1, or whose position limits include one below 0 or above 10, is not converted, because the new layout cannot hold those values. The mod runs on the file's values with the same exceptions as a converted file: a sensitivity, scale, deadzone or inversion you changed is not applied, a limit that is not a finite number is its default, and an out-of-range hotkey code leaves that key unbound. It saves nothing that session, and says so in the log at every start until the value is fixed.
 - When there is no `RedEclipseHeadTracking.ini` and the mod cannot create one because `bin\amd64` cannot be written, the mod now starts on its default settings and saves nothing that session. Earlier versions did not start at all in that case.
 - Since v0.3.1, `[General] AdsMode`, `[Hotkeys] AdsMode` and `[Hotkeys] ChordAdsMode` are no longer read, and neither Insert nor Ctrl+Shift+U cycles an ADS mode: head tracking carries on through the zoom in every case, and the lean eases out while zoomed (1dba8be).
 
@@ -27,33 +27,6 @@
 
 - add ADS mode cycle with zoom compensation and hit-marker placement
 
-### Fixed
-
-- mirror the vertical limit and restore the MIT grant
-- gate per-frame sampling on DataFreshnessMs, drop dead AimDecoupling field
-
-## [0.3.0] - 2026-08-20
-
-### Added
-
-- drop the recenter hotkey and split smoothing into local and remote
-
-## [Unreleased]
-
-### Fixed
-
-- Restored the MinHook licence file at `extern/minhook/LICENSE.txt` to the
-  verbatim upstream text. Both BSD-2-Clause blocks covering Vyacheslav Patkov's
-  Hacker Disassembler Engine had been cut down to a summary line, dropping the
-  conditions and the disclaimer that the licence requires a source
-  redistribution to retain.
-- The Nexus ZIP now carries `LICENSE`, `THIRD-PARTY-NOTICES.md` and the
-  licences of the components compiled into the `.asi`. It previously shipped
-  the binary alone, which met neither MinHook's BSD-2-Clause terms nor the MIT
-  terms of cameraunlock-core.
-- The packager now fails instead of silently skipping a licence or notice file
-  it cannot find, in either ZIP and beside the vendored loader.
-
 ### Changed
 
 - THIRD-PARTY-NOTICES now records MinHook as v1.3.4, verified by hashing the
@@ -66,6 +39,30 @@
   resolves the engine's public symbol names from the PDB the game itself ships.
 - Both the README and the notices now acknowledge the Red Eclipse Mark Policy
   and state that this mod is unofficial and unaffiliated.
+
+### Fixed
+
+- mirror the vertical limit and restore the MIT grant
+- gate per-frame sampling on DataFreshnessMs, drop dead AimDecoupling field
+- Restored the MinHook licence file at `extern/minhook/LICENSE.txt` to the
+  verbatim upstream text. Both BSD-2-Clause blocks covering Vyacheslav Patkov's
+  Hacker Disassembler Engine had been cut down to a summary line, dropping the
+  conditions and the disclaimer that the licence requires a source
+  redistribution to retain.
+- The Nexus ZIP now carries `LICENSE`, `THIRD-PARTY-NOTICES.md` and the
+  licences of the components compiled into the `.asi`. It previously shipped
+  the binary alone, which met neither MinHook's BSD-2-Clause terms nor the MIT
+  terms of cameraunlock-core.
+- The packager now fails instead of silently skipping a licence or notice file
+  it cannot find, in either ZIP and beside the vendored loader.
+
+## [0.3.0] - 2026-08-20
+
+### Added
+
+- drop the recenter hotkey and split smoothing into local and remote
+
+### Changed
 
 - Removed the in-game recentre control. Your tracker app owns the centre now:
   centre it there (opentrack's Center bind, the CENTER button in Headcam,
