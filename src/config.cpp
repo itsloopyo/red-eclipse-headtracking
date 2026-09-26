@@ -6,6 +6,7 @@
 #include "cameraunlock/input/key_bindings.h"
 #include "cameraunlock/tracking/tracking_mode.h"
 
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -122,12 +123,15 @@ cfg::LegacyImport<Config> MakeLegacyImport() {
     return {&Import, legacy::ReadKeys()};
 }
 
-cfg::ConfigOwnerOptions<Config> MakeConfigOwnerOptions(const std::wstring& path) {
+cfg::ConfigOwnerOptions<Config> MakeConfigOwnerOptions(const std::wstring& folder, cfg::DefaultsFile defaults) {
+    const auto wide = [](const char* name) { return std::wstring(name, name + std::char_traits<char>::length(name)); };
     cfg::ConfigOwnerOptions<Config> options;
-    options.path = path;
+    options.path = folder + wide(kConfigFileName);
+    options.legacy_path = folder + wide(kLegacyConfigFileName);
     options.table = MakeConfigTable();
     options.import = MakeLegacyImport();
     options.header.display_name = kConfigDisplayName;
+    options.defaults = std::move(defaults);
     return options;
 }
 

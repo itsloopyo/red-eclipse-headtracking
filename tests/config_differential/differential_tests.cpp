@@ -2,8 +2,9 @@
 //
 //   oracle     v0.3.1's reader (oracle/), the newest published build, and v0.3.1's startup code
 //   import     the frozen reader in src/legacy_config/, and the startup code it ran under
-//   migration  the config owner converting the file, then the canonical reader and table on
-//              the result, and the startup code of this build
+//   migration  the config owner in a folder holding only RedEclipseHeadTracking.ini, the
+//              legacy file, importing it into a new CameraUnlock.ini, then the canonical reader
+//              and table on that file, and the startup code of this build
 //
 // Comparison 1, oracle against import, finds what a player updating from v0.3.1 sees change
 // that the conversion did not cause. Every difference it may find is listed in
@@ -16,7 +17,14 @@
 // code outside 0x01-0xFE imports as unbound (N1). No default moved, so the no-file input has
 // no difference either. A value the canonical row cannot hold (a DataFreshnessMs below 1, a
 // finite position limit below 0 or above 10) has no approved rule: the owner defers that
-// file, the session runs on what the import gave, and kUnrepresentable names them.
+// import, the session runs on what the import gave, and kUnrepresentable names them.
+//
+// Comparison 2 runs twice, once over a Defaults.ini at the built-in values and once over one a
+// player changed, since the migration writes default exactly where the imported value equals
+// what Defaults.ini gives. After every load RedEclipseHeadTracking.ini keeps its bytes, its
+// write time and its attributes, Defaults.ini is never written, and the folder holds the
+// legacy file and CameraUnlock.ini and nothing else (the legacy file alone when nothing was
+// imported).
 //
 // The distinct migrated files are written beside the executable under migrated\, for
 // lint-migrated.mjs to run core's canonical config lint over.
@@ -32,6 +40,7 @@
 #include "oracle_adapter.h"
 
 #include "cameraunlock/config/config_owner.h"
+#include "cameraunlock/config/defaults_file.h"
 #include "cameraunlock/config/legacy_import.h"
 #include "cameraunlock/config/testing/ini_mutations.h"
 #include "cameraunlock/input/key_binding_registration.h"
@@ -45,6 +54,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -114,6 +124,30 @@ std::map<std::wstring, std::string> Snapshot(const std::wstring& dir) {
     } while (FindNextFileW(find, &data));
     FindClose(find);
     return files;
+}
+
+// A file as the tests hold it to: its bytes, its last write time and its attributes.
+struct FileStamp {
+    std::string bytes;
+    FILETIME written{};
+    DWORD attributes = 0;
+
+    bool operator==(const FileStamp& o) const {
+        return bytes == o.bytes && CompareFileTime(&written, &o.written) == 0 && attributes == o.attributes;
+    }
+    bool operator!=(const FileStamp& o) const { return !(*this == o); }
+};
+
+FileStamp Stamp(const std::wstring& path) {
+    WIN32_FILE_ATTRIBUTE_DATA data;
+    if (!GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data)) {
+        throw std::runtime_error("cannot stat " + Narrow(path));
+    }
+    FileStamp s;
+    s.bytes = ReadBytes(path);
+    s.written = data.ftLastWriteTime;
+    s.attributes = data.dwFileAttributes;
+    return s;
 }
 
 void EmptyFolder(const std::wstring& dir) {
@@ -579,7 +613,7 @@ void CheckDropRules(const std::string& name, const cfg::ImportResult& result) {
 // session runs on what the import gave.
 const char* const kUnrepresentable =
     "a DataFreshnessMs below 1, or a finite position limit below 0 or above 10, which the canonical rows "
-    "cannot hold, so the conversion defers";
+    "cannot hold, so the import defers";
 
 bool Unrepresentable(const legacy::Config& c) {
     const auto outside = [](float v) { return std::isfinite(v) && (v < 0.0f || v > 10.0f); };
@@ -587,21 +621,48 @@ bool Unrepresentable(const legacy::Config& c) {
            outside(c.pos_limit_z_back);
 }
 
+// One run of comparison 2, over one Defaults.ini.
+struct RunTally {
+    int created = 0;
+    int imported = 0;
+    int deferred = 0;
+    int refused = 0;
+    // Migrated files holding at least one default row.
+    int with_default_rows = 0;
+    // Migrated files holding a value on at least one row, which the committed file never does.
+    int with_values = 0;
+};
+
 struct MigrationTally {
     std::string committed;
     std::set<std::string> migrated;
-    int created = 0;
-    int converted = 0;
-    int deferred = 0;
-    int refused = 0;
+    RunTally builtin;
+    RunTally altered;
     int with_pose_shaping_dropped = 0;
     int with_n1 = 0;
     int with_n2 = 0;
 };
 
-std::string Render(const Config& c) {
+// Every field the table binds, as the canonical renderer writes it, so two Configs compare whole.
+std::string AllValues(const Config& c) {
     return cfg::RenderCanonical(RedEclipseHeadTracking::MakeConfigTable(), c,
                                 {RedEclipseHeadTracking::kConfigDisplayName});
+}
+
+bool Contains(const std::vector<std::string>& lines, const std::string& text) {
+    for (const std::string& line : lines) {
+        if (line.find(text) != std::string::npos) return true;
+    }
+    return false;
+}
+
+// Where Defaults.ini is for each run of comparison 2: at the built-in values, which the first
+// load creates, and with the values a player changed, written from it.
+std::wstring g_builtinDefaults;
+std::wstring g_alteredDefaults;
+
+cfg::ConfigOwnerOptions<Config> OwnerOptions(const std::wstring& dir, const std::wstring& defaults) {
+    return RedEclipseHeadTracking::MakeConfigOwnerOptions(dir + L"\\", cfg::DefaultsFile::At(defaults));
 }
 
 // ---------------------------------------------------------------------------
@@ -614,80 +675,139 @@ struct Folders {
     std::wstring migration;
 };
 
-const wchar_t kIniName[] = L"RedEclipseHeadTracking.ini";
+const wchar_t kLegacyName[] = L"RedEclipseHeadTracking.ini";
+const wchar_t kConfigName[] = L"CameraUnlock.ini";
 
-void MigrateInput(const Folders& f, const std::string& name, const std::optional<std::string>& bytes,
-                  const ImportRun& i, const cfg::ImportResult* result, MigrationTally& tally) {
+using Listing = std::map<std::wstring, std::string>;
+
+// The legacy file alone, holding `bytes`: nothing was imported.
+Listing LegacyOnly(const std::string& bytes) {
+    return Listing{{kLegacyName, bytes}};
+}
+
+void MigrateInput(const Folders& f, const std::string& input, const std::optional<std::string>& bytes,
+                  const ImportRun& i, const cfg::ImportResult* result, MigrationTally& tally,
+                  const std::wstring& defaults) {
     using cfg::ConfigLoadStatus;
+    const bool builtin = defaults == g_builtinDefaults;
+    RunTally& run = builtin ? tally.builtin : tally.altered;
+    const std::string name = input + (builtin ? " (Defaults.ini at the built-in values)" : " (Defaults.ini changed)");
+
     EmptyFolder(f.migration);
-    const std::wstring path = f.migration + L"\\" + kIniName;
-    if (bytes) WriteBytes(path, *bytes);
-    cfg::ConfigOwner<Config> owner(RedEclipseHeadTracking::MakeConfigOwnerOptions(path));
+    const std::wstring config = f.migration + L"\\" + kConfigName;
+    const std::wstring legacy = f.migration + L"\\" + kLegacyName;
+    const FileStamp defaultsBefore = Stamp(defaults);
+    FileStamp legacyBefore;
+    if (bytes) {
+        WriteBytes(legacy, *bytes);
+        legacyBefore = Stamp(legacy);
+    }
+    cfg::ConfigOwner<Config> owner(OwnerOptions(f.migration, defaults));
     const cfg::ConfigLoadResult<Config> loaded = owner.Load();
-    const std::map<std::wstring, std::string> after = Snapshot(f.migration);
+    const Listing after = Snapshot(f.migration);
+    if (Stamp(defaults) != defaultsBefore) Fail(name, "the load wrote Defaults.ini");
+    if (bytes && Stamp(legacy) != legacyBefore) {
+        Fail(name, "RedEclipseHeadTracking.ini did not keep its bytes, write time and attributes");
+    }
 
     if (!bytes) {
-        ++tally.created;
+        // Not a migration: a fresh install, which follows Defaults.ini.
+        ++run.created;
         if (loaded.status != ConfigLoadStatus::Created) Fail(name, "no file is not Created");
-        if (ReadBytes(path) != tally.committed) Fail(name, "the created file is not config/RedEclipseHeadTracking.ini");
-        for (const std::string& d : StartupDifferences(FromImport(name, i.cfg, {}), FromMigration(loaded.config))) {
-            Fail(name, "comparison 2: " + d);
+        if (after != Listing{{kConfigName, tally.committed}}) {
+            Fail(name, "the folder does not hold CameraUnlock.ini as config/RedEclipseHeadTracking.ini and nothing else");
+        }
+        if (builtin) {
+            for (const std::string& d : StartupDifferences(FromImport(name, i.cfg, {}), FromMigration(loaded.config))) {
+                Fail(name, "comparison 2: " + d);
+            }
         }
         return;
     }
     if (!ImportUsable(i.status)) {
-        ++tally.refused;
+        ++run.refused;
         if (loaded.status != ConfigLoadStatus::LegacyRefused) Fail(name, "a file the import refuses is not LegacyRefused");
-        if (after != std::map<std::wstring, std::string>{{kIniName, *bytes}}) {
-            Fail(name, "a refused file did not keep its bytes, or got a copy");
-        }
+        if (after != LegacyOnly(*bytes)) Fail(name, "a refused file got a CameraUnlock.ini or another file beside it");
         return;
     }
 
-    if (CheckPoseShaping(name, i.cfg, *result) > 0) ++tally.with_pose_shaping_dropped;
-    CheckDropRules(name, *result);
-    const auto hasRule = [result](cfg::DropRule rule) {
-        return std::any_of(result->dropped.begin(), result->dropped.end(),
-                           [rule](const cfg::DroppedValue& d) { return d.rule == rule; });
-    };
-    if (hasRule(cfg::DropRule::KeyCodeOutOfRange)) ++tally.with_n1;
-    if (hasRule(cfg::DropRule::NonFiniteNumber)) ++tally.with_n2;
+    if (builtin) {
+        if (CheckPoseShaping(name, i.cfg, *result) > 0) ++tally.with_pose_shaping_dropped;
+        CheckDropRules(name, *result);
+        const auto hasRule = [result](cfg::DropRule rule) {
+            return std::any_of(result->dropped.begin(), result->dropped.end(),
+                               [rule](const cfg::DroppedValue& d) { return d.rule == rule; });
+        };
+        if (hasRule(cfg::DropRule::KeyCodeOutOfRange)) ++tally.with_n1;
+        if (hasRule(cfg::DropRule::NonFiniteNumber)) ++tally.with_n2;
+    }
 
-    // Converted or deferred, the session runs on the settings the load hands back.
+    // Imported or deferred, the session runs on the settings the load hands back.
     for (const std::string& d :
          StartupDifferences(FromImport(name, i.cfg, result->dropped), FromMigration(loaded.config))) {
         Fail(name, "comparison 2: " + d);
     }
 
     if (Unrepresentable(i.cfg)) {
-        ++tally.deferred;
+        ++run.deferred;
         if (loaded.status != ConfigLoadStatus::Deferred) {
             Fail(name, std::string(kUnrepresentable) + ", but the load is " + cfg::ConfigLoadStatusName(loaded.status));
         }
-        if (after != std::map<std::wstring, std::string>{{kIniName, *bytes}}) {
-            Fail(name, "a deferred file did not keep its bytes, or got a copy");
+        if (after != LegacyOnly(*bytes)) Fail(name, "a deferred import created CameraUnlock.ini or another file");
+        if (loaded.reason.find("cannot be converted") == std::string::npos) {
+            Fail(name, "the player is not told which value stops the import: " + loaded.reason);
         }
         return;
     }
 
-    ++tally.converted;
+    ++run.imported;
     if (loaded.status != ConfigLoadStatus::Migrated) {
         Fail(name, std::string("the migration is ") + cfg::ConfigLoadStatusName(loaded.status) + ": " + loaded.reason);
         return;
     }
-    const auto copy = after.find(std::wstring(kIniName) + L".pre-canonical");
-    if (copy == after.end() || copy->second != *bytes) Fail(name, ".pre-canonical is not the input");
-    if (after.size() != 2) Fail(name, "the migration left files other than the config and its copy");
-
-    const std::string migrated = ReadBytes(path);
-    if (Render(loaded.config) != migrated) Fail(name, "rendering the re-read Config does not give the migrated bytes");
+    const auto created = after.find(kConfigName);
+    if (after.size() != 2 || created == after.end() || after.at(kLegacyName) != *bytes) {
+        Fail(name, "the folder does not hold RedEclipseHeadTracking.ini and CameraUnlock.ini and nothing else");
+        return;
+    }
+    if (!Contains(loaded.log, "created from")) Fail(name, "the log does not say where CameraUnlock.ini came from");
+    const std::string& migrated = created->second;
     tally.migrated.insert(migrated);
+    if (migrated.find("=default\r\n") != std::string::npos) ++run.with_default_rows;
+    if (migrated != tally.committed) ++run.with_values;
 
-    cfg::ConfigOwner<Config> again(RedEclipseHeadTracking::MakeConfigOwnerOptions(path));
+    // The next launch reads CameraUnlock.ini over the same Defaults.ini, with nothing to report,
+    // to the same settings, does not import, and writes neither file.
+    cfg::ConfigOwner<Config> again(OwnerOptions(f.migration, defaults));
     const cfg::ConfigLoadResult<Config> reread = again.Load();
-    if (reread.status != ConfigLoadStatus::Canonical || !reread.diagnostics.empty() ||
-        Render(reread.config) != migrated || Snapshot(f.migration) != after || ReadBytes(path) != migrated) {
-        Fail(name, "migrating the migrated file does something");
+    if (reread.status != ConfigLoadStatus::Canonical || !reread.diagnostics.empty()) {
+        Fail(name, "the next launch does not read CameraUnlock.ini cleanly");
+    }
+    if (AllValues(reread.config) != AllValues(loaded.config)) Fail(name, "the next launch runs on other settings");
+    if (Contains(reread.log, "created from")) Fail(name, "the next launch imports again");
+    if (!Contains(reread.log, "is left as it was and is not read")) {
+        Fail(name, "the next launch does not say RedEclipseHeadTracking.ini is not read");
+    }
+    if (Snapshot(f.migration) != after || Stamp(legacy) != legacyBefore || Stamp(defaults) != defaultsBefore) {
+        Fail(name, "the next launch changed a file");
+    }
+
+    // A read-only RedEclipseHeadTracking.ini imports as a writable one does and keeps its
+    // attribute, bytes and write time.
+    if (builtin) {
+        EmptyFolder(f.migration);
+        WriteBytes(legacy, *bytes);
+        SetFileAttributesW(legacy.c_str(), FILE_ATTRIBUTE_READONLY);
+        const FileStamp readOnlyBefore = Stamp(legacy);
+        cfg::ConfigOwner<Config> readOnly(OwnerOptions(f.migration, defaults));
+        const cfg::ConfigLoadResult<Config> fromReadOnly = readOnly.Load();
+        if (fromReadOnly.status != ConfigLoadStatus::Migrated || AllValues(fromReadOnly.config) != AllValues(loaded.config) ||
+            ReadBytes(config) != migrated) {
+            Fail(name, "a read-only RedEclipseHeadTracking.ini does not import as a writable one does");
+        }
+        if (Stamp(legacy) != readOnlyBefore || (readOnlyBefore.attributes & FILE_ATTRIBUTE_READONLY) == 0) {
+            Fail(name, "a read-only RedEclipseHeadTracking.ini did not keep its attribute, bytes and write time");
+        }
     }
 }
 
@@ -696,7 +816,7 @@ void RunInput(const Folders& f, const std::string& name, const std::optional<std
     OracleRun o;
     {
         EmptyFolder(f.oracle);
-        const std::wstring path = f.oracle + L"\\" + kIniName;
+        const std::wstring path = f.oracle + L"\\" + kLegacyName;
         if (bytes) WriteBytes(path, *bytes);
         o.usable = oracle_api::LoadOrCreate(Narrow(path).c_str(), o.cfg);
     }
@@ -705,7 +825,7 @@ void RunInput(const Folders& f, const std::string& name, const std::optional<std
     std::optional<cfg::ImportResult> result;
     {
         EmptyFolder(f.import);
-        const std::wstring path = f.import + L"\\" + kIniName;
+        const std::wstring path = f.import + L"\\" + kLegacyName;
         if (bytes) {
             WriteBytes(path, *bytes);
             SetFileAttributesW(path.c_str(), FILE_ATTRIBUTE_READONLY);
@@ -721,7 +841,42 @@ void RunInput(const Folders& f, const std::string& name, const std::optional<std
     }
 
     CompareOracleWithImport(name, o, i);
-    MigrateInput(f, name, bytes, i, result ? &*result : nullptr, tally);
+    for (const std::wstring& defaults : {g_builtinDefaults, g_alteredDefaults}) {
+        MigrateInput(f, name, bytes, i, result ? &*result : nullptr, tally, defaults);
+    }
+}
+
+// Defaults.ini as a player may have changed it, from the one the owner created: every value
+// this game reads differs from the built-in one, each set to the corpus's alternate for the
+// key it comes from, so a corpus input holding that alternate migrates as default.
+void WriteAlteredDefaults() {
+    std::string text = ReadBytes(g_builtinDefaults);
+    const std::pair<const char*, const char*> changes[] = {
+        {"UdpPort=4242", "UdpPort=5000"},
+        {"EnableOnStartup=true", "EnableOnStartup=false"},
+        {"WorldSpaceYaw=true", "WorldSpaceYaw=false"},
+        {"PositionEnabled=true", "PositionEnabled=false"},
+        {"DataFreshnessMs=500", "DataFreshnessMs=250"},
+        {"LocalSmoothing=0.0", "LocalSmoothing=0.3"},
+        {"RemoteSmoothing=0.15", "RemoteSmoothing=0.3"},
+        {"PositionLimitX=0.3", "PositionLimitX=0.25"},
+        {"PositionLimitY=0.2", "PositionLimitY=0.25"},
+        {"PositionLimitYDown=0.2", "PositionLimitYDown=0.25"},
+        {"PositionLimitZ=0.4", "PositionLimitZ=0.25"},
+        {"PositionLimitZBack=0.1", "PositionLimitZBack=0.25"},
+        {"ToggleKey=End, Ctrl+Shift+Y", "ToggleKey=F1, Ctrl+Shift+Y"},
+        {"CycleTrackingModeKey=PageUp, Ctrl+Shift+G", "CycleTrackingModeKey=F2, Ctrl+Shift+G"},
+        {"YawModeKey=PageDown, Ctrl+Shift+H", "YawModeKey=F3, Ctrl+Shift+H"},
+    };
+    for (const auto& [from, to] : changes) {
+        const std::string line = std::string("\r\n") + from + "\r\n";
+        const size_t at = text.find(line);
+        if (at == std::string::npos) throw std::runtime_error(std::string("the created Defaults.ini has no line ") + from);
+        text.replace(at + 2, std::strlen(from), to);
+    }
+    const std::wstring folder = g_alteredDefaults.substr(0, g_alteredDefaults.find_last_of(L'\\'));
+    if (!CreateDirectoryW(folder.c_str(), nullptr)) throw std::runtime_error("cannot create the changed Defaults.ini's folder");
+    WriteBytes(g_alteredDefaults, text);
 }
 
 std::string ReadInput(const std::string& file) {
@@ -774,6 +929,22 @@ int main() {
         MigrationTally tally;
         tally.committed = ReadBytes(Widen(RE_COMMITTED_CONFIG));
 
+        // Each Defaults.ini sits outside the game folder, in a user folder of its own whose
+        // parent exists, as the owner requires before it creates the file.
+        const std::wstring builtinUser = MakeFolder(root, L"user-builtin");
+        const std::wstring alteredUser = MakeFolder(root, L"user-altered");
+        g_builtinDefaults = builtinUser + L"\\CameraUnlock\\Defaults.ini";
+        g_alteredDefaults = alteredUser + L"\\CameraUnlock\\Defaults.ini";
+        {
+            EmptyFolder(folders.migration);
+            cfg::ConfigOwner<Config> first(OwnerOptions(folders.migration, g_builtinDefaults));
+            if (first.Load().status != cfg::ConfigLoadStatus::Created) Fail("Defaults.ini", "the first load is not Created");
+            if (GetFileAttributesW(g_builtinDefaults.c_str()) == INVALID_FILE_ATTRIBUTES) {
+                Fail("Defaults.ini", "the first load did not create Defaults.ini");
+            }
+        }
+        WriteAlteredDefaults();
+
         TestFrozenDefaults();
         TestRegistrationModel();
 
@@ -782,7 +953,7 @@ int main() {
         const std::string firstRun = ReadInput("first-run-v0.3.1.ini");
         {
             EmptyFolder(folders.oracle);
-            const std::wstring path = folders.oracle + L"\\" + kIniName;
+            const std::wstring path = folders.oracle + L"\\" + kLegacyName;
             oracle_api::Config created;
             if (!oracle_api::LoadOrCreate(Narrow(path).c_str(), created) || ReadBytes(path) != firstRun) {
                 Fail("first run", "the oracle's first-run output is not inputs/first-run-v0.3.1.ini");
@@ -800,16 +971,16 @@ int main() {
         };
         for (const auto& [name, bytes] : inputs) RunInput(folders, name, bytes, tally);
 
-        // Fresh equals upgrade: each published build's first-run output converts to the
-        // committed file, as no file is created as it.
+        // Fresh equals upgrade: over Defaults.ini at the built-in values, each published
+        // build's first-run output, as RedEclipseHeadTracking.ini, imports into a
+        // CameraUnlock.ini that is the committed file, which is what a fresh install creates.
         for (const std::string& file : {firstRunV020, firstRunV030, firstRun}) {
             EmptyFolder(folders.migration);
-            const std::wstring path = folders.migration + L"\\" + kIniName;
-            WriteBytes(path, file);
-            cfg::ConfigOwner<Config> owner(RedEclipseHeadTracking::MakeConfigOwnerOptions(path));
-            owner.Load();
-            if (ReadBytes(path) != tally.committed) {
-                Fail("first run", "a first-run file does not convert to the committed file");
+            WriteBytes(folders.migration + L"\\" + kLegacyName, file);
+            cfg::ConfigOwner<Config> owner(OwnerOptions(folders.migration, g_builtinDefaults));
+            if (owner.Load().status != cfg::ConfigLoadStatus::Migrated ||
+                ReadBytes(folders.migration + L"\\" + kConfigName) != tally.committed) {
+                Fail("first run", "a first-run file does not import into the committed file");
             }
         }
 
@@ -823,18 +994,26 @@ int main() {
             std::printf("  %s (%s): %d inputs\n    %s\n", d.id, d.commit, d.seen, d.what);
             if (d.seen == 0) Fail(d.id, "a listed difference no input shows");
         }
-        std::printf("comparison 2, the frozen reader against the migration: %d created, %d converted, "
-                    "%d refused as v0.3.1 refused them, %zu distinct files\n",
-                    tally.created, tally.converted, tally.refused, tally.migrated.size());
+        std::printf("comparison 2, the frozen reader against the migration, %zu distinct files:\n",
+                    tally.migrated.size());
+        for (const auto& [over, run] : {std::pair<const char*, const RunTally*>{"at the built-in values", &tally.builtin},
+                                        std::pair<const char*, const RunTally*>{"changed", &tally.altered}}) {
+            std::printf("  over Defaults.ini %s: %d created, %d imported (%d holding a default row, %d a value), "
+                        "%d deferred, %d refused as v0.3.1 refused them\n",
+                        over, run->created, run->imported, run->with_default_rows, run->with_values, run->deferred,
+                        run->refused);
+            if (run->deferred == 0) Fail("deferral", std::string("no input is deferred over ") + over);
+            if (run->with_default_rows == 0) Fail("default", std::string("no import writes default over ") + over);
+            if (run->with_values == 0) Fail("default", std::string("no import writes a value over ") + over);
+        }
         std::printf("  %d with a changed sensitivity, inversion, deadzone or scale dropped (pose_shaping)\n",
                     tally.with_pose_shaping_dropped);
         std::printf("  %d with a limit that is not a finite number set to its default (N2)\n", tally.with_n2);
         std::printf("  %d with a hotkey code outside 0x01-0xFE unbound (N1)\n", tally.with_n1);
-        std::printf("  %d deferred: %s\n", tally.deferred, kUnrepresentable);
+        std::printf("  deferred: %s\n", kUnrepresentable);
         if (tally.with_pose_shaping_dropped == 0) Fail("pose shaping", "no input drops a changed value");
         if (tally.with_n1 == 0) Fail("N1", "no input unbinds an out-of-range hotkey code");
         if (tally.with_n2 == 0) Fail("N2", "no input sets a non-finite limit to its default");
-        if (tally.deferred == 0) Fail("deferral", "no input is deferred");
         if (tally.migrated.count(tally.committed) == 0) Fail("first run", "no input migrated to the committed file");
 
         wchar_t exe[MAX_PATH];
@@ -847,11 +1026,8 @@ int main() {
             WriteBytes(lintDir + L"\\" + std::to_wstring(n++) + L".ini", file);
         }
 
-        for (const std::wstring& dir : {folders.oracle, folders.import, folders.migration}) {
-            EmptyFolder(dir);
-            RemoveDirectoryW(dir.c_str());
-        }
-        RemoveDirectoryW(root.c_str());
+        std::error_code ignored;
+        std::filesystem::remove_all(root, ignored);
     } catch (const std::exception& e) {
         std::printf("FAIL: %s\n", e.what());
         return 1;

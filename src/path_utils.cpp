@@ -10,7 +10,7 @@ namespace RedEclipseHeadTracking {
 
 static void DummyAddress() {}
 
-std::wstring GetModulePathW(const char* filename) {
+std::wstring GetModuleDirectoryW() {
     HMODULE hModule = nullptr;
     if (!GetModuleHandleExW(
             GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -37,9 +37,13 @@ std::wstring GetModulePathW(const char* filename) {
     if (lastSlash == std::wstring::npos) {
         throw std::runtime_error("the module path has no folder");
     }
+    return path.substr(0, lastSlash + 1);
+}
+
+std::wstring GetModulePathW(const char* filename) {
     std::wstring name;
     for (const char* p = filename; *p != '\0'; ++p) name.push_back(static_cast<wchar_t>(*p));
-    return path.substr(0, lastSlash + 1) + name;
+    return GetModuleDirectoryW() + name;
 }
 
 }

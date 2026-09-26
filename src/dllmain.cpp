@@ -16,6 +16,7 @@
 
 #include <optional>
 #include <string>
+#include <utility>
 
 namespace {
 
@@ -33,7 +34,7 @@ RedEclipseHeadTracking::GameSymbols g_symbols;
 RedEclipseHeadTracking::TrackingRuntime g_tracking;
 RedEclipseHeadTracking::Hotkeys g_hotkeys;
 
-// The one reader and writer of the config file. The hotkey thread saves
+// The one reader and writer of CameraUnlock.ini. The hotkey thread saves
 // through it after InitThread has loaded it.
 std::optional<cameraunlock::config::ConfigOwner<RedEclipseHeadTracking::Config>> g_configOwner;
 
@@ -64,11 +65,15 @@ bool WillRelaunchThroughSteam() {
     return true;
 }
 
+// A save that did not happen has already reached the log through the status
+// sink; the session keeps the state the toggle applied. A save that did can
+// carry a line too, naming a row that stopped following Defaults.ini.
 void LogSave(const cameraunlock::config::ConfigSaveResult& saved) {
     using namespace RedEclipseHeadTracking;
-    if (saved.status == cameraunlock::config::ConfigSaveStatus::Saved) return;
     for (const std::string& line : saved.log) Log::Line("%s", line.c_str());
-    Log::Line("WARN: %s", saved.reason.c_str());
+    if (saved.status != cameraunlock::config::ConfigSaveStatus::Saved) {
+        Log::Line("WARN: the change applies for this session only.");
+    }
 }
 
 // Each toggle applies its new state first, then saves it. End is not here: it
@@ -134,13 +139,16 @@ unsigned __stdcall InitThread(void*) {
 
     // The process that hands off to Steam returned above, so of the two that
     // load the ASI on a relaunch, only the one that keeps running opens the file.
-    g_configOwner.emplace(MakeConfigOwnerOptions(GetModulePathW(kConfigFileName)));
+    cameraunlock::config::ConfigOwnerOptions<Config> options =
+        MakeConfigOwnerOptions(GetModuleDirectoryW(), cameraunlock::config::DefaultsFile::PerUser());
+    // The log is the only place this mod can tell the player anything.
+    options.status_sink = [](const std::string& message) { Log::Line("WARN: %s", message.c_str()); };
+    g_configOwner.emplace(std::move(options));
     const cameraunlock::config::ConfigLoadResult<Config> loaded = g_configOwner->Load();
     for (const std::string& line : loaded.log) Log::Line("%s", line.c_str());
     Log::Line("Config: %s", cameraunlock::config::ConfigLoadStatusName(loaded.status));
-    if (!loaded.reason.empty()) Log::Line("WARN: %s", loaded.reason.c_str());
-    // The build this file was written for refused it and did not start, so
-    // this one does the same until the player fixes it.
+    // The build RedEclipseHeadTracking.ini was written for refused it and did
+    // not start, so this one does the same until the player fixes it.
     if (loaded.status == cameraunlock::config::ConfigLoadStatus::LegacyRefused) {
         Log::Line("ERROR: Config load failed");
         return 1;

@@ -36,9 +36,10 @@ uninstall = "scripts\\uninstall.cmd /y"
 # differential test against the published build, and the frozen-file check.
 test = { cmd = "ctest --test-dir build -C Release --output-on-failure", depends-on = ["build-release"] }
 
-# Rewrites config/RedEclipseHeadTracking.ini, the committed config, from the config table
-# after a change to a row, a comment or a default. The config tests fail until it has run.
-# There is no launcher seed to re-encode; encode-seed says so.
+# Rewrites config/RedEclipseHeadTracking.ini, the committed copy of the CameraUnlock.ini the mod
+# creates at first launch, from the config table after a change to a row, a comment or a
+# default. The config tests fail until it has run. encode-seed then rewrites the per_game of
+# launcher-manifest.json's config descriptor, and says so when there is none.
 render-config = { cmd = "build/Release/config_tests.exe --render-config config/RedEclipseHeadTracking.ini && node cameraunlock-core/scripts/encode-seed.mjs", depends-on = ["build-release"] }
 
 # Validates the newest built installer ZIP against its manifest, and that the Nexus ZIP

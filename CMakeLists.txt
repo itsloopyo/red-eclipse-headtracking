@@ -123,8 +123,8 @@ if(HEADTRACKING_BUILD_TESTS)
         $<TARGET_FILE_DIR:config_differential_test>/migrated)
     set_tests_properties(config_lint PROPERTIES DEPENDS config_differential)
 
-    # The committed config against the table, the toggles' saves, and the axis conversion that
-    # replaced the shipped pose settings. `--render-config <path>` makes it write the committed
+    # The committed config against the table, a first start, the toggles' saves, and the axis
+    # conversion that replaced the shipped pose settings. `--render-config <path>` makes it write the committed
     # file instead (pixi run render-config).
     add_executable(config_tests
         tests/config_tests.cpp

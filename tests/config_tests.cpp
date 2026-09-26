@@ -1,8 +1,9 @@
-// The settings file and what the conversion moved into code: the committed file is the
-// table's render, the defaults every published build ran on map to it, the toggles save only
-// their own lines, End's row cannot be saved, and the axis conversion that replaced the
-// shipped InvertYaw, InvertRoll and PositionScale gives the camera the pose those settings
-// gave it.
+// CameraUnlock.ini and what the conversion moved into code: the committed file is the table's
+// fresh render, the defaults every published build ran on map to the defaults, a first start
+// creates the committed file, the toggles save only their own lines and leave Defaults.ini and
+// RedEclipseHeadTracking.ini alone, End's row cannot be saved, and the axis conversion that
+// replaced the shipped InvertYaw, InvertRoll and PositionScale gives the camera the pose those
+// settings gave it.
 //
 // `--render-config <path>` writes the committed file instead (pixi run render-config).
 
@@ -16,10 +17,12 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <stdexcept>
@@ -31,6 +34,7 @@ using namespace RedEclipseHeadTracking;
 namespace {
 
 namespace cfg = cameraunlock::config;
+namespace fs = std::filesystem;
 
 int g_failures = 0;
 
@@ -57,14 +61,66 @@ std::wstring Widen(const std::string& s) {
     return std::wstring(s.begin(), s.end());
 }
 
+// The file a first start creates: default on every row, since each one is a global concept.
 std::string Rendered() {
-    const auto table = MakeConfigTable();
-    return cfg::RenderCanonical(table, table.defaults(), {kConfigDisplayName});
+    return cfg::RenderCanonicalFresh(MakeConfigTable(), {kConfigDisplayName});
 }
 
 void TestCommittedConfigIsRendered() {
     Check(ReadBytes(Widen(RE_COMMITTED_CONFIG)) == Rendered(),
-          "config/RedEclipseHeadTracking.ini is the table rendered from its defaults (pixi run render-config)");
+          "config/RedEclipseHeadTracking.ini is the table's fresh render (pixi run render-config)");
+}
+
+// A scratch game folder, and a Defaults.ini of its own beside it that the first load creates.
+struct Scratch {
+    fs::path root;
+    fs::path game;
+    fs::path defaults;
+
+    explicit Scratch(const char* name) {
+        wchar_t temp[MAX_PATH];
+        GetTempPathW(MAX_PATH, temp);
+        root = fs::path(temp) / (std::string("red-eclipse-") + name + "-" + std::to_string(GetCurrentProcessId()));
+        fs::remove_all(root);
+        game = root / "bin" / "amd64";
+        fs::create_directories(game);
+        fs::create_directories(root / "user");
+        defaults = root / "user" / "CameraUnlock" / "Defaults.ini";
+    }
+    ~Scratch() {
+        std::error_code ignored;
+        fs::remove_all(root, ignored);
+    }
+    Scratch(const Scratch&) = delete;
+    Scratch& operator=(const Scratch&) = delete;
+
+    cfg::ConfigOwnerOptions<Config> Options() const {
+        return MakeConfigOwnerOptions(game.wstring() + L"\\", cfg::DefaultsFile::At(defaults.wstring()));
+    }
+};
+
+std::vector<std::string> Listing(const fs::path& dir) {
+    std::vector<std::string> names;
+    for (const fs::directory_entry& entry : fs::directory_iterator(dir)) names.push_back(entry.path().filename().string());
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
+// With neither file there, the first start creates CameraUnlock.ini as the committed file and
+// Defaults.ini with the built-in values, and no RedEclipseHeadTracking.ini.
+void TestFirstStartCreatesTheCommittedFile() {
+    const Scratch s("config-first-start");
+    const auto loaded = cfg::ConfigOwner<Config>(s.Options()).Load();
+    Check(loaded.status == cfg::ConfigLoadStatus::Created, "a first start with no file is Created");
+    Check(ReadBytes((s.game / "CameraUnlock.ini").wstring()) == ReadBytes(Widen(RE_COMMITTED_CONFIG)),
+          "a first start creates config/RedEclipseHeadTracking.ini's bytes as CameraUnlock.ini");
+    Check(Listing(s.game) == std::vector<std::string>{"CameraUnlock.ini"},
+          "a first start creates CameraUnlock.ini and nothing else");
+    Check(fs::exists(s.defaults), "a first start creates Defaults.ini");
+    const auto table = MakeConfigTable();
+    Check(cfg::RenderCanonical(table, loaded.config, {kConfigDisplayName}) ==
+              cfg::RenderCanonical(table, table.defaults(), {kConfigDisplayName}),
+          "a first start runs on the built-in values");
 }
 
 // A fresh install and an upgrade from any published build's defaults start the same: the map
@@ -86,7 +142,9 @@ void TestLegacyDefaultsMapToTheDefaults() {
     for (const cfg::PoseShapingValue& value : result.pose_shaping) {
         Check(value.folded, "[" + value.section + "] " + value.key + " at its shipped value is folded");
     }
-    Check(cfg::RenderCanonical(table, mapped, {kConfigDisplayName}) == Rendered(), "the old defaults map to the defaults");
+    Check(cfg::RenderCanonical(table, mapped, {kConfigDisplayName}) ==
+              cfg::RenderCanonical(table, table.defaults(), {kConfigDisplayName}),
+          "the old defaults map to the defaults");
     Check(mapped.toggle_key_name == "End, Ctrl+Shift+Y" && mapped.cycle_tracking_mode_key_name == "PageUp, Ctrl+Shift+G" &&
               mapped.yaw_mode_key_name == "PageDown, Ctrl+Shift+H",
           "the old hotkeys and their chord switches become the fleet's key lists");
@@ -115,26 +173,41 @@ std::vector<std::string> ChangedLines(const std::string& before, const std::stri
     return changed;
 }
 
-// A save changes the lines of its rows and no other byte, the yaw mode and the tracking mode
-// persist, and End's row cannot be saved at all.
+bool Contains(const std::vector<std::string>& lines, const std::string& text) {
+    for (const std::string& line : lines) {
+        if (line.find(text) != std::string::npos) return true;
+    }
+    return false;
+}
+
+// A save changes the lines of its rows and no other byte, writes a value over default, and
+// touches neither Defaults.ini nor RedEclipseHeadTracking.ini; the yaw mode and the tracking
+// mode persist, and End's row cannot be saved at all.
 void TestTogglesSave() {
-    wchar_t temp[MAX_PATH];
-    GetTempPathW(MAX_PATH, temp);
-    const std::wstring dir = std::wstring(temp) + L"red-eclipse-config-save-" + std::to_wstring(GetCurrentProcessId());
-    CreateDirectoryW(dir.c_str(), nullptr);
-    const std::wstring path = dir + L"\\" + Widen(kConfigFileName);
+    const Scratch s("config-save");
+    const std::wstring path = (s.game / "CameraUnlock.ini").wstring();
+    const std::wstring legacyPath = (s.game / kLegacyConfigFileName).wstring();
     const std::string committed = ReadBytes(Widen(RE_COMMITTED_CONFIG));
+    const std::string legacyBytes = "[General]\r\nEnableOnStartup=0\r\n";
     WriteBytes(path, committed);
+    WriteBytes(legacyPath, legacyBytes);
 
     {
-        cfg::ConfigOwner<Config> owner(MakeConfigOwnerOptions(path));
-        Check(owner.Load().status == cfg::ConfigLoadStatus::Canonical, "the committed file loads as canonical");
+        cfg::ConfigOwner<Config> owner(s.Options());
+        const auto loaded = owner.Load();
+        Check(loaded.status == cfg::ConfigLoadStatus::Canonical, "the committed file loads as canonical");
+        Check(loaded.config.enable_on_startup, "RedEclipseHeadTracking.ini is not read while CameraUnlock.ini exists");
+        Check(Contains(loaded.log, "is left as it was and is not read"),
+              "the log says RedEclipseHeadTracking.ini is not read while CameraUnlock.ini exists");
+        const std::string defaultsBefore = ReadBytes(s.defaults.wstring());
 
-        Check(owner.Save([](Config& c) { c.world_space_yaw = false; }).status == cfg::ConfigSaveStatus::Saved,
-              "the yaw mode saves");
+        const cfg::ConfigSaveResult yaw = owner.Save([](Config& c) { c.world_space_yaw = false; });
+        Check(yaw.status == cfg::ConfigSaveStatus::Saved, "the yaw mode saves");
+        Check(Contains(yaw.log, "WorldSpaceYaw=false is now set for this game, and no longer follows Defaults.ini"),
+              "the yaw save says WorldSpaceYaw stopped following Defaults.ini");
         const std::string afterYaw = ReadBytes(path);
         Check(ChangedLines(committed, afterYaw) == std::vector<std::string>{"WorldSpaceYaw=false"},
-              "saving the yaw mode changes its line and nothing else");
+              "saving the yaw mode writes its value over default and changes nothing else");
 
         const auto rotationOnly = cameraunlock::EncodeTrackingMode(cameraunlock::TrackingMode::RotationOnly);
         Check(owner.Save([rotationOnly](Config& c) {
@@ -143,8 +216,9 @@ void TestTogglesSave() {
               }).status == cfg::ConfigSaveStatus::Saved,
               "the tracking mode saves");
         const std::string afterRotationOnly = ReadBytes(path);
-        Check(ChangedLines(afterYaw, afterRotationOnly) == std::vector<std::string>{"PositionEnabled=false"},
-              "saving rotation only changes PositionEnabled and nothing else");
+        Check(ChangedLines(afterYaw, afterRotationOnly) ==
+                  std::vector<std::string>{"RotationEnabled=true", "PositionEnabled=false"},
+              "saving rotation only writes the mode pair over default and changes nothing else");
 
         const auto positionOnly = cameraunlock::EncodeTrackingMode(cameraunlock::TrackingMode::PositionOnly);
         Check(owner.Save([positionOnly](Config& c) {
@@ -163,17 +237,18 @@ void TestTogglesSave() {
             refused = true;
         }
         Check(refused, "EnableOnStartup is not Writable, so the End toggle cannot persist");
+
+        Check(ReadBytes(s.defaults.wstring()) == defaultsBefore, "saving leaves Defaults.ini as it was");
+        Check(ReadBytes(legacyPath) == legacyBytes, "saving leaves RedEclipseHeadTracking.ini as it was");
     }
 
-    cfg::ConfigOwner<Config> reopened(MakeConfigOwnerOptions(path));
-    const auto again = reopened.Load();
+    const auto again = cfg::ConfigOwner<Config>(s.Options()).Load();
     Check(again.status == cfg::ConfigLoadStatus::Canonical && again.diagnostics.empty() &&
               !again.config.world_space_yaw && !again.config.rotation_enabled && again.config.position_enabled &&
               again.config.enable_on_startup,
           "the saved yaw and tracking mode come back at the next start");
-
-    DeleteFileW(path.c_str());
-    RemoveDirectoryW(dir.c_str());
+    Check((Listing(s.game) == std::vector<std::string>{"CameraUnlock.ini", kLegacyConfigFileName}),
+          "the game folder holds CameraUnlock.ini and RedEclipseHeadTracking.ini and nothing else");
 }
 
 uint32_t Bits(float f) {
@@ -248,6 +323,7 @@ int main(int argc, char** argv) {
 
         TestCommittedConfigIsRendered();
         TestLegacyDefaultsMapToTheDefaults();
+        TestFirstStartCreatesTheCommittedFile();
         TestTogglesSave();
         TestShippedPoseShapingIsFolded();
     } catch (const std::exception& e) {
