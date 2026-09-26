@@ -15,7 +15,7 @@ Red Eclipse.
 | injector | `f7fd18f` (inside Ultimate ASI Loader v9.7.2) | zlib | Compiled into the vendored dinput8.dll |
 | miniz | 3.0.0 (inside Ultimate ASI Loader v9.7.2) | MIT | Compiled into the vendored dinput8.dll |
 | MinHook | v1.3.4 | BSD-2-Clause | Compiled into the `.asi`; licence at `licenses/minhook-LICENSE.txt` in both ZIPs |
-| cameraunlock-core | def74d7107d1823340931cbc41e474cc652826f5 | MIT | Compiled into the `.asi`; licence at `licenses/cameraunlock-core-LICENSE.txt` in both ZIPs |
+| cameraunlock-core | b4df73a5d8076968fcbf7e4088dd49db11a2684e | MIT | Compiled into the `.asi`; licence at `licenses/cameraunlock-core-LICENSE.txt` in both ZIPs |
 | OpenTrack | n/a | ISC | Not bundled; UDP protocol interoperability only |
 
 ---
@@ -260,7 +260,7 @@ own code but a different copyright holder from this mod's own LICENSE, so its
 notice ships in its own right: verbatim below, and as a file at
 `licenses/cameraunlock-core-LICENSE.txt` in both release ZIPs.
 
-- Pinned commit: `def74d7107d1823340931cbc41e474cc652826f5`
+- Pinned commit: `b4df73a5d8076968fcbf7e4088dd49db11a2684e`
 
 ```
 MIT License
