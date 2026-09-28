@@ -56,11 +56,13 @@ std::wstring ParentDirectory(const std::wstring& path) {
     return path.substr(0, slash);
 }
 
-bool ResolveRenderShaderOffset(DWORD64 pdbBase, DWORD& offset) {
+// Resolves a data member's byte offset from its struct's type record, so a
+// patch that reorders or grows the struct still resolves.
+bool ResolveMemberOffset(DWORD64 pdbBase, const wchar_t* typeName, const wchar_t* member, unsigned long& offset) {
     SYMBOL_INFOW symbol{};
     symbol.SizeOfStruct = sizeof(symbol);
-    if (!SymGetTypeFromNameW(kSymOwner, pdbBase, L"UI::Render", &symbol)) {
-        Log::Line("ERROR: UI::Render type lookup failed (win32 %lu)", GetLastError());
+    if (!SymGetTypeFromNameW(kSymOwner, pdbBase, typeName, &symbol)) {
+        Log::Line("ERROR: %ls type lookup failed (win32 %lu)", typeName, GetLastError());
         return false;
     }
     DWORD typeIndex = symbol.TypeIndex, tag = symbol.Tag;
@@ -68,37 +70,39 @@ bool ResolveRenderShaderOffset(DWORD64 pdbBase, DWORD& offset) {
     while (tag == kSymTagTypedef) {
         if (!SymGetTypeInfo(kSymOwner, pdbBase, typeIndex, TI_GET_TYPEID, &typeIndex) ||
             !SymGetTypeInfo(kSymOwner, pdbBase, typeIndex, TI_GET_SYMTAG, &tag)) {
-            Log::Line("ERROR: UI::Render type alias lookup failed (win32 %lu)", GetLastError());
+            Log::Line("ERROR: %ls type alias lookup failed (win32 %lu)", typeName, GetLastError());
             return false;
         }
     }
     DWORD count = 0;
     if (!SymGetTypeInfo(kSymOwner, pdbBase, typeIndex, TI_GET_CHILDRENCOUNT, &count)) {
-        Log::Line("ERROR: UI::Render child count failed (win32 %lu)", GetLastError());
+        Log::Line("ERROR: %ls child count failed (win32 %lu)", typeName, GetLastError());
         return false;
     }
     std::vector<ULONG> storage(sizeof(TI_FINDCHILDREN_PARAMS) / sizeof(ULONG) + count);
     auto* children = reinterpret_cast<TI_FINDCHILDREN_PARAMS*>(storage.data());
     children->Count = count;
     if (!SymGetTypeInfo(kSymOwner, pdbBase, typeIndex, TI_FINDCHILDREN, children)) {
-        Log::Line("ERROR: UI::Render member lookup failed (win32 %lu)", GetLastError());
+        Log::Line("ERROR: %ls member lookup failed (win32 %lu)", typeName, GetLastError());
         return false;
     }
     for (DWORD i = 0; i < count; ++i) {
         wchar_t* name = nullptr;
         // Base-class records have no member name.
         if (!SymGetTypeInfo(kSymOwner, pdbBase, children->ChildId[i], TI_GET_SYMNAME, &name)) continue;
-        const bool matches = name && std::wstring(name) == L"shdr";
+        const bool matches = name && std::wstring(name) == member;
         LocalFree(name);
         if (!matches) continue;
-        if (!SymGetTypeInfo(kSymOwner, pdbBase, children->ChildId[i], TI_GET_OFFSET, &offset)) {
-            Log::Line("ERROR: UI::Render::shdr offset failed (win32 %lu)", GetLastError());
+        DWORD value = 0;
+        if (!SymGetTypeInfo(kSymOwner, pdbBase, children->ChildId[i], TI_GET_OFFSET, &value)) {
+            Log::Line("ERROR: %ls::%ls offset failed (win32 %lu)", typeName, member, GetLastError());
             return false;
         }
-        Log::Line("Symbols: UI::Render::shdr offset 0x%lX", offset);
+        offset = value;
+        Log::Line("Symbols: %ls::%ls offset 0x%lX", typeName, member, offset);
         return true;
     }
-    Log::Line("ERROR: UI::Render::shdr absent from PDB");
+    Log::Line("ERROR: %ls::%ls absent from PDB", typeName, member);
     return false;
 }
 
@@ -148,6 +152,7 @@ bool GameSymbols::Resolve(HMODULE gameModule) {
         uintptr_t rvaInZoom = 0, rvaFov = 0, rvaZooming = 0, rvaCurFov = 0;
         uintptr_t rvaDrawUiRender = 0, rvaLookupShader = 0, rvaHudMatrix = 0;
         uintptr_t rvaVisorEnabled = 0, rvaVisorCoords = 0, rvaVisorSurface = 0, rvaRenderVisor = 0;
+        uintptr_t rvaEmitFx = 0, rvaFocus = 0;
 
         const Entry entries[] = {
             {L"setcammatrix", &rvaSetCamMatrix},
@@ -165,6 +170,8 @@ bool GameSymbols::Resolve(HMODULE gameModule) {
             {L"VisorSurface::coords", &rvaVisorCoords},
             {L"visorsurf", &rvaVisorSurface},
             {L"rendervisor", &rvaRenderVisor},
+            {L"fx::instance::emitfx", &rvaEmitFx},
+            {L"game::focus", &rvaFocus},
             {L"camera1", &rvaCamera1},
             {L"camera", &rvaCamera},
             {L"cammatrix", &rvaCamMatrix},
@@ -183,7 +190,23 @@ bool GameSymbols::Resolve(HMODULE gameModule) {
             }
         }
 
-        if (ok) ok = ResolveRenderShaderOffset(pdbBase, renderShaderOffset);
+        struct Member {
+            const wchar_t* type;
+            const wchar_t* name;
+            unsigned long* offset;
+        };
+        const Member members[] = {
+            {L"UI::Render", L"shdr", &renderShaderOffset},
+            {L"gameent", L"flashlightfx", &flashlightFxOffset},
+            {L"fx::instance", L"e", &instanceEmitterOffset},
+            {L"fx::instance", L"parent", &instanceParentOffset},
+            {L"fx::instance", L"from", &instanceFromOffset},
+            {L"fx::instance", L"to", &instanceToOffset},
+        };
+        for (const Member& member : members) {
+            if (!ok) break;
+            ok = ResolveMemberOffset(pdbBase, member.type, member.name, *member.offset);
+        }
         if (ok) {
             uintptr_t moduleBase = reinterpret_cast<uintptr_t>(gameModule);
             auto at = [moduleBase](uintptr_t rva) { return reinterpret_cast<void*>(moduleBase + rva); };
@@ -203,6 +226,8 @@ bool GameSymbols::Resolve(HMODULE gameModule) {
             visorCoords = reinterpret_cast<void (*)(void*, float, float, float&, float&, bool)>(at(rvaVisorCoords));
             visorSurface = at(rvaVisorSurface);
             renderVisor = static_cast<int*>(at(rvaRenderVisor));
+            emitfx = reinterpret_cast<void (*)(void*)>(at(rvaEmitFx));
+            focus = static_cast<void**>(at(rvaFocus));
 
             camera1 = static_cast<void**>(at(rvaCamera1));
             camera = at(rvaCamera);

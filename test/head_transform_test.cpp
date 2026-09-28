@@ -405,6 +405,43 @@ void TestHitMarkerHudOffset() {
     Check(!OffsetHudWidget(invalid, 0.7f, 0.3f, x, y), "invalid HUD draws no marker");
 }
 
+EngVec Forward(float yawDeg, float pitchDeg) {
+    const EngVec origin{0.0f, 0.0f, 0.0f};
+    return AimPoint(origin, yawDeg, pitchDeg, 1.0f);
+}
+
+void TestTorchTurnsWithTheView() {
+    std::printf("torch beam turned at 1x lands on the tracked view's forward\n");
+    const Scene scene = MakeScene(35.0f, -12.0f);
+    HeadPose pose;
+    pose.yaw_deg = 25.0f;
+    pose.pitch_deg = 15.0f;
+    pose.roll_deg = 10.0f;
+    pose.x = 1.0f;
+    for (bool worldSpaceYaw : {false, true}) {
+        const EngMat4 h = BuildHeadTransform(pose, scene.cleanView, worldSpaceYaw);
+        EngVec dir{}, right{}, up{};
+        CameraAxesFromView(Multiply(h, scene.cleanView), dir, right, up);
+        const EngVec beam = TurnWithHead(h, scene.cleanView, Forward(scene.yaw, scene.pitch));
+        CheckNear(beam.x, dir.x, 1e-5f, "beam x follows the view");
+        CheckNear(beam.y, dir.y, 1e-5f, "beam y follows the view");
+        CheckNear(beam.z, dir.z, 1e-5f, "beam z follows the view");
+    }
+}
+
+void TestTorchLeadsTheView() {
+    std::printf("torch beam turned by a scaled pose turns by the scaled angle\n");
+    const Scene scene = MakeScene(0.0f, 0.0f);
+    const HeadPose scaled{30.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
+    const EngMat4 h = BuildHeadTransform(scaled, scene.cleanView, true);
+    const EngVec beam = TurnWithHead(h, scene.cleanView, Forward(0.0f, 0.0f));
+    // HeadPose's positive yaw is Cube's negative yaw.
+    const EngVec expected = Forward(-30.0f, 0.0f);
+    CheckNear(beam.x, expected.x, 1e-5f, "beam x at 30 degrees");
+    CheckNear(beam.y, expected.y, 1e-5f, "beam y at 30 degrees");
+    CheckNear(beam.z, expected.z, 1e-5f, "beam stays level");
+}
+
 }  // namespace
 
 int main() {
@@ -420,6 +457,8 @@ int main() {
     TestLitmusHorizonStaysLevelUnderWorldYaw();
     TestAimBehindTheViewIsRejected();
     TestHitMarkerHudOffset();
+    TestTorchTurnsWithTheView();
+    TestTorchLeadsTheView();
 
     if (g_failures) {
         std::printf("\n%d check(s) failed\n", g_failures);

@@ -35,6 +35,20 @@ struct GameSymbols {
     void* visorSurface = nullptr;
     int* renderVisor = nullptr;
 
+    // engine/fxemit.cpp - emits one fx instance (particle, light, sound...)
+    // from its already computed from/to. The torch is a light instance whose
+    // beam points from `from` to `to`.
+    void (*emitfx)(void* instance) = nullptr;
+    // gameent *game::focus - the player the view belongs to.
+    void** focus = nullptr;
+    // gameent::flashlightfx, the emitter carrying that player's torch.
+    unsigned long flashlightFxOffset = 0;
+    // fx::instance members.
+    unsigned long instanceEmitterOffset = 0;
+    unsigned long instanceParentOffset = 0;
+    unsigned long instanceFromOffset = 0;
+    unsigned long instanceToOffset = 0;
+
     // physent *camera1 - the camera the renderer reads.
     void** camera1 = nullptr;
     // physent camera - the real view camera. Off-screen passes (minimap, envmap,

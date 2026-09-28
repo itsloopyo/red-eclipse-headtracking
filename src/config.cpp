@@ -141,6 +141,8 @@ cfg::ImportResult Import(const cfg::LegacyInput& input, Config& out) {
     follows.Setting(Concept::CycleTrackingModeKey,
                     c.vk_cycle_mode == shipped.vk_cycle_mode && c.chord_cycle_mode == shipped.chord_cycle_mode);
     follows.Setting(Concept::YawModeKey, c.vk_yaw_mode == shipped.vk_yaw_mode && c.chord_yaw_mode == shipped.chord_yaw_mode);
+    follows.NotInLegacy(Concept::LightFollowsHead);
+    follows.NotInLegacy(Concept::LightMultiplier);
 
     return status == legacy::ReadStatus::Absent
                ? cfg::ImportResult::Absent(std::move(dropped), std::move(shaping), follows.Concepts())
@@ -155,7 +157,7 @@ cfg::ConfigTable<Config> MakeConfigTable() {
         {C::UdpPort, C::EnableOnStartup, C::WorldSpaceYaw, C::RotationEnabled, C::DataFreshnessMs,
          C::LocalSmoothing, C::RemoteSmoothing, C::PositionEnabled, C::PositionLimitX, C::PositionLimitY,
          C::PositionLimitYDown, C::PositionLimitZ, C::PositionLimitZBack, C::ToggleKey, C::CycleTrackingModeKey,
-         C::YawModeKey});
+         C::YawModeKey, C::LightFollowsHead, C::LightMultiplier});
     table.Select(C::WorldSpaceYaw).Writable()
         .Select(C::RotationEnabled).Writable()
         .Select(C::PositionEnabled).Writable();

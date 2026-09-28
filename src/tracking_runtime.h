@@ -41,6 +41,8 @@ public:
 
     bool IsWorldSpaceYaw() const { return m_worldSpaceYaw.load(std::memory_order_relaxed); }
 
+    const cameraunlock::effects::HeadFollowLightSettings& Light() const { return m_cfg.light; }
+
 private:
     // Logs which smoothing parameter is in force when the session switches
     // between a local and a remote tracker. The session does the selection.

@@ -154,6 +154,19 @@ with your head turned it sits off to one side, on the spot your shots will hit.
 Head movement is scaled to the zoom, so the scope does not magnify it. Leaning
 eases out while zoomed, because it would move your eye off the aim.
 
+### Torch
+
+Where the game gives you a torch (the darkness mutator, and maps that switch
+one on), it follows your head rather than your aim, and turns a little further
+than the view does. When you turn your head your eyes end up past the centre of
+the screen, so a beam matched to the view alone lands short of what you are
+looking at. Your shots still go where your aim points.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `LightFollowsHead` | `true` | Point the torch where you are looking |
+| `LightMultiplier` | `1.5` | How far it turns relative to your head. `1.0` matches the view, `0` leaves the beam on the aim |
+
 ## Configuration
 
 Apart from creating `CameraUnlock.ini` at startup when there is none, the mod
@@ -187,6 +200,8 @@ The built-in value of each setting set to `default` below:
 - `ToggleKey=End, Ctrl+Shift+Y`
 - `CycleTrackingModeKey=PageUp, Ctrl+Shift+G`
 - `YawModeKey=PageDown, Ctrl+Shift+H`
+- `LightFollowsHead=true`
+- `LightMultiplier=1.5`
 
 With every setting at its default, the file reads:
 
@@ -250,6 +265,13 @@ ToggleKey=default
 CycleTrackingModeKey=default
 ; Switches yaw between the world's up axis and the camera's own (WorldSpaceYaw).
 YawModeKey=default
+
+[Light]
+; true: a light you carry points where you look instead of where you aim.
+LightFollowsHead=default
+; How far the light turns for each degree your head turns.
+; 1 matches the view, 0 keeps the light on your aim.
+LightMultiplier=default
 ```
 <!-- /cameraunlock:config -->
 

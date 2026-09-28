@@ -106,6 +106,29 @@ inline EngMat4 BuildHeadTransform(const HeadPose& pose, const EngMat4& cleanView
     return h;
 }
 
+// Turns a world-space direction the way H turns the view: into the clean camera's
+// frame, through H's rotation, and back out. With H from BuildHeadTransform, the
+// clean forward comes out as the tracked view's forward. H's translation is
+// ignored, since a direction has no position to move.
+inline EngVec TurnWithHead(const EngMat4& head, const EngMat4& cleanView, const EngVec& dir) {
+    const EngVec cam{
+        cleanView.a.x * dir.x + cleanView.b.x * dir.y + cleanView.c.x * dir.z,
+        cleanView.a.y * dir.x + cleanView.b.y * dir.y + cleanView.c.y * dir.z,
+        cleanView.a.z * dir.x + cleanView.b.z * dir.y + cleanView.c.z * dir.z,
+    };
+    // Transpose of H's rotation block, which is the rotation the head applies.
+    const EngVec turned{
+        head.a.x * cam.x + head.a.y * cam.y + head.a.z * cam.z,
+        head.b.x * cam.x + head.b.y * cam.y + head.b.z * cam.z,
+        head.c.x * cam.x + head.c.y * cam.y + head.c.z * cam.z,
+    };
+    return EngVec{
+        cleanView.a.x * turned.x + cleanView.a.y * turned.y + cleanView.a.z * turned.z,
+        cleanView.b.x * turned.x + cleanView.b.y * turned.y + cleanView.b.z * turned.z,
+        cleanView.c.x * turned.x + cleanView.c.y * turned.y + cleanView.c.z * turned.z,
+    };
+}
+
 // camdir/camright/camup are the world-space camera axes the engine derives from
 // cammatrix at the end of setcammatrix. Rebuilding them from the tracked matrix
 // keeps particle billboards, lens flares and audio panning aligned with what is

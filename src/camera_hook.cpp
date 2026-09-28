@@ -4,6 +4,7 @@
 #include "ads.h"
 #include "engine_pose.h"
 #include "cameraunlock/camera/zoom_compensation.h"
+#include "cameraunlock/effects/head_follow_light.h"
 #include "logging.h"
 
 #include <MinHook.h>
@@ -20,6 +21,7 @@ void (*g_originalSetCamMatrix)() = nullptr;
 void (*g_originalRecomputeCamera)() = nullptr;
 void (*g_originalDrawPointers)(int, int, float, float, float) = nullptr;
 void (*g_originalDrawUiRender)(void*, float, float) = nullptr;
+void (*g_originalEmitFx)(void*) = nullptr;
 
 // The view matrix exactly as the engine built it, captured every frame before
 // the head transform goes on. game::recomputecamera derives the aim point from
@@ -31,6 +33,12 @@ bool g_hasCleanCamMatrix = false;
 EngMat4 g_headTransform{};
 bool g_headActive = false;
 bool g_reportedFirstTransform = false;
+
+// The head transform again with the rotation scaled by LightMultiplier, which
+// the torch beam is turned by.
+EngMat4 g_lightTransform{};
+bool g_lightActive = false;
+bool g_reportedFirstLight = false;
 
 // True while the engine is rendering the player's actual view. Off-screen
 // passes (minimap, environment map, model preview, UI viewports) swap camera1
@@ -98,6 +106,7 @@ void HookedRecomputeCamera() {
     if ((!sample.has_rotation && !sample.has_position) || !g_hasCleanCamMatrix || !HasGameplayInput()) {
         g_adsLean.Reset();
         g_headActive = false;
+        g_lightActive = false;
         return;
     }
 
@@ -113,6 +122,19 @@ void HookedRecomputeCamera() {
 
     g_headTransform = BuildHeadTransform(pose, g_cleanCamMatrix, g_tracking->IsWorldSpaceYaw());
     g_headActive = true;
+
+    const cameraunlock::effects::HeadFollowLightSettings& light = g_tracking->Light();
+    g_lightActive = light.follows_head;
+    if (g_lightActive) {
+        // Euler scaling, because the camera takes the pose as Euler angles too.
+        const cameraunlock::effects::HeadEuler scaled = cameraunlock::effects::ScaleHeadEuler(
+            cameraunlock::effects::HeadEuler{pose.yaw_deg, pose.pitch_deg, pose.roll_deg}, light.multiplier);
+        HeadPose lightPose;
+        lightPose.yaw_deg = scaled.yaw;
+        lightPose.pitch_deg = scaled.pitch;
+        lightPose.roll_deg = scaled.roll;
+        g_lightTransform = BuildHeadTransform(lightPose, g_cleanCamMatrix, g_tracking->IsWorldSpaceYaw());
+    }
 
     // One line, the first time the view actually moves. Without it a working
     // install and a mod that resolved its symbols but never engaged produce
@@ -184,6 +206,49 @@ void HookedDrawUiRender(void* widget, float x, float y) {
     g_originalDrawUiRender(widget, x, y);
 }
 
+// The torch is FX_PLAYER_FLASHLIGHT_EMIT, a light fx whose beam runs from the
+// torso tag towards the player's own yaw/pitch (fxtrack ENT_POS_DIR). It is the
+// root instance on the focus player's flashlightfx emitter. The beam is turned only for the call that queues its dynamic light, so
+// nothing the game reads later sees it moved.
+void HookedEmitFx(void* instance) {
+    void* focus = *g_symbols->focus;
+    if (!g_lightActive || !focus) {
+        g_originalEmitFx(instance);
+        return;
+    }
+    auto* inst = static_cast<unsigned char*>(instance);
+    void* emitter = *reinterpret_cast<void**>(inst + g_symbols->instanceEmitterOffset);
+    void* parent = *reinterpret_cast<void**>(inst + g_symbols->instanceParentOffset);
+    void* torch = *reinterpret_cast<void**>(static_cast<unsigned char*>(focus) + g_symbols->flashlightFxOffset);
+    if (parent || !torch || emitter != torch) {
+        g_originalEmitFx(instance);
+        return;
+    }
+
+    const EngVec& from = *reinterpret_cast<EngVec*>(inst + g_symbols->instanceFromOffset);
+    EngVec& to = *reinterpret_cast<EngVec*>(inst + g_symbols->instanceToOffset);
+    const EngVec aimed = to;
+    const EngVec beam = TurnWithHead(g_lightTransform, g_cleanCamMatrix,
+                                     EngVec{aimed.x - from.x, aimed.y - from.y, aimed.z - from.z});
+    to = EngVec{from.x + beam.x, from.y + beam.y, from.z + beam.z};
+    g_originalEmitFx(instance);
+    to = aimed;
+
+    if (!g_reportedFirstLight) {
+        g_reportedFirstLight = true;
+        const EngVec aim{aimed.x - from.x, aimed.y - from.y, aimed.z - from.z};
+        const EngVec view = TurnWithHead(g_headTransform, g_cleanCamMatrix, aim);
+        const auto degreesFromAim = [&aim](const EngVec& v) {
+            const float dot = aim.x * v.x + aim.y * v.y + aim.z * v.z;
+            const float lengths = std::sqrt((aim.x * aim.x + aim.y * aim.y + aim.z * aim.z) *
+                                            (v.x * v.x + v.y * v.y + v.z * v.z));
+            return std::acos(std::fmax(-1.0f, std::fmin(1.0f, dot / lengths))) * 57.2957795f;
+        };
+        Log::Line("Torch follows head: multiplier=%.2f, beam %.1f deg off the aim, view %.1f deg",
+                  g_tracking->Light().multiplier, degreesFromAim(beam), degreesFromAim(view));
+    }
+}
+
 bool CreateHook(void* target, void* detour, void** original, const char* name) {
     MH_STATUS status = MH_CreateHook(target, detour, original);
     if (status != MH_OK) {
@@ -221,7 +286,9 @@ bool InstallCameraHook(const GameSymbols& symbols, TrackingRuntime& tracking) {
         !CreateHook(reinterpret_cast<void*>(symbols.drawpointers), &HookedDrawPointers,
                     reinterpret_cast<void**>(&g_originalDrawPointers), "hud::drawpointers") ||
         !CreateHook(reinterpret_cast<void*>(symbols.drawUiRender), &HookedDrawUiRender,
-                    reinterpret_cast<void**>(&g_originalDrawUiRender), "UI::Render::draw")) {
+                    reinterpret_cast<void**>(&g_originalDrawUiRender), "UI::Render::draw") ||
+        !CreateHook(reinterpret_cast<void*>(symbols.emitfx), &HookedEmitFx,
+                    reinterpret_cast<void**>(&g_originalEmitFx), "fx::instance::emitfx")) {
         MH_DisableHook(MH_ALL_HOOKS);
         MH_Uninitialize();
         return false;
@@ -235,6 +302,7 @@ bool InstallCameraHook(const GameSymbols& symbols, TrackingRuntime& tracking) {
 void RemoveCameraHook() {
     if (!g_installed) return;
     g_headActive = false;
+    g_lightActive = false;
     MH_DisableHook(MH_ALL_HOOKS);
     MH_Uninitialize();
     g_installed = false;
