@@ -5,6 +5,7 @@
 #include "cameraunlock/config/head_tracking_config_table.h"
 #include "cameraunlock/tracking/tracking_mode.h"
 
+#include <cmath>
 #include <string>
 #include <utility>
 #include <vector>
@@ -46,7 +47,11 @@ cfg::ImportResult Import(const cfg::LegacyInput& input, Config& out) {
 
     out.enable_on_startup = c.enabled_on_startup;
     out.udp_port = c.udp_port;
-    out.data_freshness_ms = c.data_freshness_ms;
+    // The frozen reader read DataFreshnessMs and the limits with no range, so a value outside the
+    // canonical row's range is clamped to its nearest end (N4), and a limit that is not finite
+    // imports as its default (N2).
+    out.data_freshness_ms =
+        cfg::LegacyClampToRange<Concept::DataFreshnessMs>(c.data_freshness_ms, "General", "DataFreshnessMs", dropped);
     out.world_space_yaw = c.world_space_yaw;
 
     // [Position] Enabled chose only the mode the session started in: the cycle key reached
@@ -64,13 +69,30 @@ cfg::ImportResult Import(const cfg::LegacyInput& input, Config& out) {
     out.position.remote_smoothing = c.remote_smoothing;
 
     // LimitY bounded both directions, so it becomes both explicit values.
-    out.position.limit_x = cfg::LegacyFiniteOrDefault(c.pos_limit_x, defaults.position.limit_x, "Position", "LimitX", dropped);
-    const float limitY = cfg::LegacyFiniteOrDefault(c.pos_limit_y, defaults.position.limit_y, "Position", "LimitY", dropped);
+    static_assert(cfg::schema::ConceptTraits<Concept::PositionLimitY>::kMin ==
+                          cfg::schema::ConceptTraits<Concept::PositionLimitYDown>::kMin &&
+                      cfg::schema::ConceptTraits<Concept::PositionLimitY>::kMax ==
+                          cfg::schema::ConceptTraits<Concept::PositionLimitYDown>::kMax,
+                  "one LimitY fills both vertical limit rows, so they take one range");
+    out.position.limit_x =
+        std::isfinite(c.pos_limit_x)
+            ? cfg::LegacyClampToRange<Concept::PositionLimitX>(c.pos_limit_x, "Position", "LimitX", dropped)
+            : cfg::LegacyFiniteOrDefault(c.pos_limit_x, defaults.position.limit_x, "Position", "LimitX", dropped);
+    const float limitY =
+        std::isfinite(c.pos_limit_y)
+            ? cfg::LegacyClampToRange<Concept::PositionLimitY>(c.pos_limit_y, "Position", "LimitY", dropped)
+            : cfg::LegacyFiniteOrDefault(c.pos_limit_y, defaults.position.limit_y, "Position", "LimitY", dropped);
     out.position.limit_y = limitY;
     out.position.limit_y_down = limitY;
-    out.position.limit_z = cfg::LegacyFiniteOrDefault(c.pos_limit_z, defaults.position.limit_z, "Position", "LimitZ", dropped);
+    out.position.limit_z =
+        std::isfinite(c.pos_limit_z)
+            ? cfg::LegacyClampToRange<Concept::PositionLimitZ>(c.pos_limit_z, "Position", "LimitZ", dropped)
+            : cfg::LegacyFiniteOrDefault(c.pos_limit_z, defaults.position.limit_z, "Position", "LimitZ", dropped);
     out.position.limit_z_back =
-        cfg::LegacyFiniteOrDefault(c.pos_limit_z_back, defaults.position.limit_z_back, "Position", "LimitZBack", dropped);
+        std::isfinite(c.pos_limit_z_back)
+            ? cfg::LegacyClampToRange<Concept::PositionLimitZBack>(c.pos_limit_z_back, "Position", "LimitZBack", dropped)
+            : cfg::LegacyFiniteOrDefault(c.pos_limit_z_back, defaults.position.limit_z_back, "Position", "LimitZBack",
+                                         dropped);
 
     // The shipped yaw and roll inversions and the 8 units to the metre are the axis
     // conversion itself, now in ToEnginePose (engine_pose.h); every other shipped value was
@@ -99,7 +121,8 @@ cfg::ImportResult Import(const cfg::LegacyInput& input, Config& out) {
 
     // A setting the player never changed from what the legacy build shipped follows
     // Defaults.ini. LimitY stood for both vertical bounds, and each hotkey for its code and its
-    // chord switch together.
+    // chord switch together. Each number is compared as read: one that is not finite follows
+    // Defaults.ini (N2), and one N4 clamped is the player's.
     const legacy::Config shipped;
     cfg::LegacyFollowsDefaultsIni follows;
     follows.Setting(Concept::UdpPort, c.udp_port, shipped.udp_port);

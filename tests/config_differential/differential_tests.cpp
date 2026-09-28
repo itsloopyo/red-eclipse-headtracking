@@ -13,14 +13,14 @@
 // Comparison 2, import against migration, is the proof for the migration: no difference but
 // the approved ones, each of which the import must record as dropped. A sensitivity,
 // inversion, deadzone or unit scale the player set away from its shipped value is dropped
-// (pose_shaping); a limit that is not a finite number imports as its default (N2); a hotkey
-// code outside 0x01-0xFE (N1) or on a Ctrl, Shift or Alt key alone (N3) imports as unbound. A
-// row the player never changed from what v0.3.1 shipped follows Defaults.ini: the import names
-// it in follows_defaults_ini, ExpectedFollows derives that list from what the frozen reader
-// read, and the session takes what Defaults.ini gives the row. No default moved, so the no-file
-// input has no difference either. A value the canonical row cannot hold (a DataFreshnessMs below 1, a
-// finite position limit below 0 or above 10) has no approved rule: the owner defers that
-// import, the session runs on what the import gave, and kUnrepresentable names them.
+// (pose_shaping); a limit that is not a finite number follows Defaults.ini (N2); a
+// DataFreshnessMs below 1 or a finite limit below 0 or above 10, which the frozen reader read
+// with no range, imports as the nearest end of the canonical row's range (N4); a hotkey code
+// outside 0x01-0xFE (N1) or on a Ctrl, Shift or Alt key alone (N3) imports as unbound. A row
+// the player never changed from what v0.3.1 shipped follows Defaults.ini: the import names it
+// in follows_defaults_ini, ExpectedFollows derives that list from what the frozen reader read,
+// and the session takes what Defaults.ini gives the row. No default moved between the published
+// builds for any key the frozen reader reads, so the no-file input has no difference either.
 //
 // Comparison 2 runs twice, once over a Defaults.ini at the built-in values and once over one a
 // player changed, since the migration writes default exactly where the imported value equals
@@ -457,14 +457,33 @@ const cfg::DroppedValue* FindDrop(const std::vector<cfg::DroppedValue>& dropped,
     return nullptr;
 }
 
-// A limit that is not finite imports as its default (N2), and only then is it dropped.
-uint32_t LimitAfterN2(const std::string& name, float value, float row_default, const char* key,
-                      const std::vector<cfg::DroppedValue>& dropped) {
+// The canonical rows' ranges, which N4 clamps a value the frozen reader read with no range to.
+constexpr float kLimitMin = 0.0f;
+constexpr float kLimitMax = 10.0f;
+constexpr int kMinDataFreshnessMs = 1;
+
+// A limit that is not finite imports as its default (N2), and one outside 0 to 10 as the nearest
+// end (N4); only then is it dropped.
+uint32_t LimitAfterN2N4(const std::string& name, float value, float row_default, const char* key,
+                        const std::vector<cfg::DroppedValue>& dropped) {
     const bool n2 = !std::isfinite(value);
     if (n2 != (FindDrop(dropped, cfg::DropRule::NonFiniteNumber, "Position", key) != nullptr)) {
         Fail(name, std::string("[Position] ") + key + " dropped as not finite does not match its value");
     }
-    return Bits(n2 ? row_default : value);
+    const bool n4 = !n2 && (value < kLimitMin || value > kLimitMax);
+    if (n4 != (FindDrop(dropped, cfg::DropRule::NumberOutOfRange, "Position", key) != nullptr)) {
+        Fail(name, std::string("[Position] ") + key + " clamped does not match its value");
+    }
+    return Bits(n2 ? row_default : std::clamp(value, kLimitMin, kLimitMax));
+}
+
+// A DataFreshnessMs below 1 imports as 1 (N4), and only then is it dropped.
+int DataFreshnessAfterN4(const std::string& name, int value, const std::vector<cfg::DroppedValue>& dropped) {
+    const bool n4 = value < kMinDataFreshnessMs;
+    if (n4 != (FindDrop(dropped, cfg::DropRule::NumberOutOfRange, "General", "DataFreshnessMs") != nullptr)) {
+        Fail(name, "[General] DataFreshnessMs clamped does not match its value");
+    }
+    return std::max(value, kMinDataFreshnessMs);
 }
 
 // A hotkey code outside 0x01-0xFE (N1) or on a Ctrl, Shift or Alt key alone (N3) imports as
@@ -491,14 +510,14 @@ Startup FromImport(const std::string& name, const legacy::Config& c, const std::
     s.enabled = c.enabled_on_startup;
     s.mode = c.position_enabled ? TrackingMode::RotationAndPosition : TrackingMode::RotationOnly;
     s.world_yaw = c.world_space_yaw;
-    s.data_freshness_ms = c.data_freshness_ms;
+    s.data_freshness_ms = DataFreshnessAfterN4(name, c.data_freshness_ms, dropped);
     s.local_smoothing = Bits(c.local_smoothing);
     s.remote_smoothing = Bits(c.remote_smoothing);
-    s.limit_x = LimitAfterN2(name, c.pos_limit_x, defaults.position.limit_x, "LimitX", dropped);
-    s.limit_y = LimitAfterN2(name, c.pos_limit_y, defaults.position.limit_y, "LimitY", dropped);
+    s.limit_x = LimitAfterN2N4(name, c.pos_limit_x, defaults.position.limit_x, "LimitX", dropped);
+    s.limit_y = LimitAfterN2N4(name, c.pos_limit_y, defaults.position.limit_y, "LimitY", dropped);
     s.limit_y_down = s.limit_y;
-    s.limit_z = LimitAfterN2(name, c.pos_limit_z, defaults.position.limit_z, "LimitZ", dropped);
-    s.limit_z_back = LimitAfterN2(name, c.pos_limit_z_back, defaults.position.limit_z_back, "LimitZBack", dropped);
+    s.limit_z = LimitAfterN2N4(name, c.pos_limit_z, defaults.position.limit_z, "LimitZ", dropped);
+    s.limit_z_back = LimitAfterN2N4(name, c.pos_limit_z_back, defaults.position.limit_z_back, "LimitZBack", dropped);
     const bool toggleKept = KeyAfterN1(name, c.vk_toggle, "Toggle", dropped);
     const bool cycleKept = KeyAfterN1(name, c.vk_cycle_mode, "CycleMode", dropped);
     const bool yawKept = KeyAfterN1(name, c.vk_yaw_mode, "YawMode", dropped);
@@ -544,8 +563,9 @@ Startup FromMigration(const Config& c) {
 using cfg::schema::Concept;
 
 // The rows the player never changed from what v0.3.1 shipped: the frozen reader's value equals
-// its default. LimitY stood for both vertical bounds, [Position] Enabled for the tracking mode
-// pair, and each hotkey code for its row together with its chord switch.
+// its default, or, for a limit, is not a finite number (N2). LimitY stood for both vertical
+// bounds, [Position] Enabled for the tracking mode pair, and each hotkey code for its row
+// together with its chord switch.
 std::set<Concept> ExpectedFollows(const legacy::Config& c) {
     const legacy::Config s;
     std::set<Concept> out;
@@ -559,10 +579,11 @@ std::set<Concept> ExpectedFollows(const legacy::Config& c) {
     add(c.data_freshness_ms == s.data_freshness_ms, {Concept::DataFreshnessMs});
     add(c.local_smoothing == s.local_smoothing, {Concept::LocalSmoothing});
     add(c.remote_smoothing == s.remote_smoothing, {Concept::RemoteSmoothing});
-    add(c.pos_limit_x == s.pos_limit_x, {Concept::PositionLimitX});
-    add(c.pos_limit_y == s.pos_limit_y, {Concept::PositionLimitY, Concept::PositionLimitYDown});
-    add(c.pos_limit_z == s.pos_limit_z, {Concept::PositionLimitZ});
-    add(c.pos_limit_z_back == s.pos_limit_z_back, {Concept::PositionLimitZBack});
+    const auto untouched = [](float value, float shipped) { return value == shipped || !std::isfinite(value); };
+    add(untouched(c.pos_limit_x, s.pos_limit_x), {Concept::PositionLimitX});
+    add(untouched(c.pos_limit_y, s.pos_limit_y), {Concept::PositionLimitY, Concept::PositionLimitYDown});
+    add(untouched(c.pos_limit_z, s.pos_limit_z), {Concept::PositionLimitZ});
+    add(untouched(c.pos_limit_z_back, s.pos_limit_z_back), {Concept::PositionLimitZBack});
     add(c.vk_toggle == s.vk_toggle && c.chord_toggle == s.chord_toggle, {Concept::ToggleKey});
     add(c.vk_cycle_mode == s.vk_cycle_mode && c.chord_cycle_mode == s.chord_cycle_mode,
         {Concept::CycleTrackingModeKey});
@@ -674,29 +695,16 @@ int CheckPoseShaping(const std::string& name, const legacy::Config& c, const cfg
 void CheckDropRules(const std::string& name, const cfg::ImportResult& result) {
     for (const cfg::DroppedValue& d : result.dropped) {
         const bool approved = d.rule == cfg::DropRule::PoseShaping || d.rule == cfg::DropRule::NonFiniteNumber ||
-                              d.rule == cfg::DropRule::KeyCodeOutOfRange || d.rule == cfg::DropRule::ModifierKey;
+                              d.rule == cfg::DropRule::NumberOutOfRange || d.rule == cfg::DropRule::KeyCodeOutOfRange ||
+                              d.rule == cfg::DropRule::ModifierKey;
         if (!approved) Fail(name, "the import drops [" + d.section + "] " + d.key + " by a rule this map never applies");
     }
-}
-
-// A value the frozen reader accepts that the canonical row cannot hold, and that no approved
-// rule covers. The owner defers such a file: it stays as it is, nothing is saved, and the
-// session runs on what the import gave.
-const char* const kUnrepresentable =
-    "a DataFreshnessMs below 1, or a finite position limit below 0 or above 10, which the canonical rows "
-    "cannot hold, so the import defers";
-
-bool Unrepresentable(const legacy::Config& c) {
-    const auto outside = [](float v) { return std::isfinite(v) && (v < 0.0f || v > 10.0f); };
-    return c.data_freshness_ms < 1 || outside(c.pos_limit_x) || outside(c.pos_limit_y) || outside(c.pos_limit_z) ||
-           outside(c.pos_limit_z_back);
 }
 
 // One run of comparison 2, over one Defaults.ini.
 struct RunTally {
     int created = 0;
     int imported = 0;
-    int deferred = 0;
     int refused = 0;
     // Migrated files holding at least one default row.
     int with_default_rows = 0;
@@ -713,6 +721,7 @@ struct MigrationTally {
     int with_n1 = 0;
     int with_n2 = 0;
     int with_n3 = 0;
+    int with_n4 = 0;
     // Imports over the changed Defaults.ini that leave some rows to it and keep a value on another.
     int with_follows_and_kept = 0;
 };
@@ -818,6 +827,7 @@ void MigrateInput(const Folders& f, const std::string& input, const std::optiona
         if (hasRule(cfg::DropRule::KeyCodeOutOfRange)) ++tally.with_n1;
         if (hasRule(cfg::DropRule::NonFiniteNumber)) ++tally.with_n2;
         if (hasRule(cfg::DropRule::ModifierKey)) ++tally.with_n3;
+        if (hasRule(cfg::DropRule::NumberOutOfRange)) ++tally.with_n4;
     }
 
     const std::set<Concept> follows = ExpectedFollows(i.cfg);
@@ -825,24 +835,12 @@ void MigrateInput(const Folders& f, const std::string& input, const std::optiona
     if (named.size() != result->follows_defaults_ini.size()) Fail(name, "follows_defaults_ini names a row twice");
     if (named != follows) Fail(name, "follows_defaults_ini is not the rows the player never changed");
 
-    // Imported or deferred, the session runs on the settings the load hands back: the import's,
-    // and what Defaults.ini gives on each row the player never changed.
+    // The session runs on the settings the load hands back: the import's, and what Defaults.ini
+    // gives on each row the player never changed.
     const Startup expected = TakeDefaults(FromImport(name, i.cfg, result->dropped),
                                           builtin ? g_builtinStartup : g_alteredStartup, follows);
     for (const std::string& d : StartupDifferences(expected, FromMigration(loaded.config))) {
         Fail(name, "comparison 2: " + d);
-    }
-
-    if (Unrepresentable(i.cfg)) {
-        ++run.deferred;
-        if (loaded.status != ConfigLoadStatus::Deferred) {
-            Fail(name, std::string(kUnrepresentable) + ", but the load is " + cfg::ConfigLoadStatusName(loaded.status));
-        }
-        if (after != LegacyOnly(*bytes)) Fail(name, "a deferred import created CameraUnlock.ini or another file");
-        if (loaded.reason.find("cannot be converted") == std::string::npos) {
-            Fail(name, "the player is not told which value stops the import: " + loaded.reason);
-        }
-        return;
     }
 
     ++run.imported;
@@ -1076,6 +1074,13 @@ int main() {
             {"[Hotkeys] CycleMode on Left Ctrl, chord off (N3)",
              Replaced(Replaced(firstRun, "CycleMode=0x21", "CycleMode=0xA2"), "ChordCycleMode=1", "ChordCycleMode=0")},
             {"[Hotkeys] YawMode on Right Alt (N3)", Replaced(firstRun, "YawMode=0x22", "YawMode=0xA5")},
+            // Outside the canonical ranges, clamped (N4), and at their ends, which are not.
+            {"[Position] LimitZ=12 (N4)", Replaced(firstRun, "LimitZ=0.4", "LimitZ=12")},
+            {"[Position] LimitX=-0.5 (N4)", Replaced(firstRun, "LimitX=0.3", "LimitX=-0.5")},
+            {"[Position] LimitZ=10", Replaced(firstRun, "LimitZ=0.4", "LimitZ=10")},
+            {"[Position] LimitX=0", Replaced(firstRun, "LimitX=0.3", "LimitX=0")},
+            {"[General] DataFreshnessMs=0 (N4)", Replaced(firstRun, "DataFreshnessMs=500", "DataFreshnessMs=0")},
+            {"[General] DataFreshnessMs=1", Replaced(firstRun, "DataFreshnessMs=500", "DataFreshnessMs=1")},
         };
         for (const auto& [name, bytes] : inputs) RunInput(folders, name, bytes, tally);
 
@@ -1115,24 +1120,23 @@ int main() {
         for (const auto& [over, run] : {std::pair<const char*, const RunTally*>{"at the built-in values", &tally.builtin},
                                         std::pair<const char*, const RunTally*>{"changed", &tally.altered}}) {
             std::printf("  over Defaults.ini %s: %d created, %d imported (%d holding a default row, %d a value), "
-                        "%d deferred, %d refused as v0.3.1 refused them\n",
-                        over, run->created, run->imported, run->with_default_rows, run->with_values, run->deferred,
-                        run->refused);
-            if (run->deferred == 0) Fail("deferral", std::string("no input is deferred over ") + over);
+                        "%d refused as v0.3.1 refused them\n",
+                        over, run->created, run->imported, run->with_default_rows, run->with_values, run->refused);
             if (run->with_default_rows == 0) Fail("default", std::string("no import writes default over ") + over);
             if (run->with_values == 0) Fail("default", std::string("no import writes a value over ") + over);
         }
         std::printf("  %d with a changed sensitivity, inversion, deadzone or scale dropped (pose_shaping)\n",
                     tally.with_pose_shaping_dropped);
-        std::printf("  %d with a limit that is not a finite number set to its default (N2)\n", tally.with_n2);
+        std::printf("  %d with a limit that is not a finite number left to Defaults.ini (N2)\n", tally.with_n2);
+        std::printf("  %d with a DataFreshnessMs below 1 or a limit outside 0 to 10 clamped (N4)\n", tally.with_n4);
         std::printf("  %d with a hotkey code outside 0x01-0xFE unbound (N1)\n", tally.with_n1);
         std::printf("  %d with a hotkey on a Ctrl, Shift or Alt key alone unbound (N3)\n", tally.with_n3);
         std::printf("  %d over the changed Defaults.ini leaving untouched rows to it and keeping a changed one\n",
                     tally.with_follows_and_kept);
-        std::printf("  deferred: %s\n", kUnrepresentable);
         if (tally.with_pose_shaping_dropped == 0) Fail("pose shaping", "no input drops a changed value");
         if (tally.with_n1 == 0) Fail("N1", "no input unbinds an out-of-range hotkey code");
-        if (tally.with_n2 == 0) Fail("N2", "no input sets a non-finite limit to its default");
+        if (tally.with_n2 == 0) Fail("N2", "no input leaves a non-finite limit to Defaults.ini");
+        if (tally.with_n4 == 0) Fail("N4", "no input clamps a value outside its row's range");
         if (tally.with_n3 == 0) Fail("N3", "no input unbinds a hotkey on a modifier key");
         if (tally.with_follows_and_kept == 0) {
             Fail("default", "no import leaves untouched rows to Defaults.ini while keeping a changed one");
