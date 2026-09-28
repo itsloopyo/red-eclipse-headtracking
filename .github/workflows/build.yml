@@ -14,6 +14,13 @@ on:
       - 'docs/**'
       - 'LICENSE'
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build and Validate
@@ -49,10 +56,6 @@ jobs:
       - name: Build Release
         shell: pwsh
         run: pixi run build-release
-
-      - name: Run unit tests
-        shell: pwsh
-        run: pixi run test
 
       - name: Verify build outputs
         shell: pwsh

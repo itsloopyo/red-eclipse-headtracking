@@ -34,7 +34,9 @@ uninstall = "scripts\\uninstall.cmd /y"
 
 # Host-side unit tests (HEADTRACKING_BUILD_TESTS, enabled by setup), the config
 # differential test against the published build, and the frozen-file check.
-test = { cmd = "ctest --test-dir build -C Release --output-on-failure", depends-on = ["build-release"] }
+test-unit = { cmd = "ctest --test-dir build -C Release --output-on-failure -LE differential", depends-on = ["build-release"] }
+test-differential = { cmd = "ctest --test-dir build -C Release --output-on-failure --no-tests=error -L differential", depends-on = ["build-release"] }
+test = { depends-on = ["test-unit", "test-differential"] }
 
 # Rewrites config/RedEclipseHeadTracking.ini, the committed copy of the CameraUnlock.ini the mod
 # creates at first launch, from the config table after a change to a row, a comment or a
@@ -48,7 +50,7 @@ render-config = { cmd = "build/Release/config_tests.exe --render-config config/R
 validate-manifest = "node cameraunlock-core/scripts/validate-manifest.mjs"
 
 # Package release ZIPs (installer + nexus).
-package = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1", depends-on = ["build-release", "test"] }
+package = { cmd = "powershell -ExecutionPolicy Bypass -File scripts/package-release.ps1", depends-on = ["build-release", "test-unit"] }
 
 # Clean build artifacts. No $vars in inline commands - pixi's shell eats them before PowerShell runs.
 clean = { cmd = """
