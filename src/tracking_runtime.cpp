@@ -74,7 +74,18 @@ void TrackingRuntime::ToggleEnabled() {
 }
 
 cameraunlock::TrackingMode TrackingRuntime::CycleTrackingMode() {
-    const cameraunlock::TrackingMode mode = m_session.CycleMode();
+    // From the applied mode, so two presses inside one frame move one step,
+    // matching the one save each of them makes.
+    const auto next = static_cast<cameraunlock::TrackingMode>(
+        (static_cast<int>(m_session.GetMode()) + 1) % 3);
+    m_desiredMode.store(next, std::memory_order_relaxed);
+    m_modeChange.Request();
+    return next;
+}
+
+void TrackingRuntime::ApplyRequestedMode() {
+    const cameraunlock::TrackingMode mode = m_desiredMode.load(std::memory_order_relaxed);
+    m_session.SetMode(mode);
     switch (mode) {
         case cameraunlock::TrackingMode::RotationAndPosition:
             Log::Line("Tracking mode: rotation + position (6DOF)");
@@ -86,7 +97,6 @@ cameraunlock::TrackingMode TrackingRuntime::CycleTrackingMode() {
             Log::Line("Tracking mode: position only");
             break;
     }
-    return mode;
 }
 
 bool TrackingRuntime::ToggleYawMode() {
@@ -98,6 +108,8 @@ bool TrackingRuntime::ToggleYawMode() {
 
 FrameSample TrackingRuntime::SampleFrame() {
     FrameSample out;
+
+    if (m_modeChange.Consume()) ApplyRequestedMode();
 
     if (!m_enabled.load(std::memory_order_relaxed)) {
         return out;

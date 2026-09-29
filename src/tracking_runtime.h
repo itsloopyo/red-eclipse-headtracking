@@ -2,6 +2,7 @@
 
 #include "config.h"
 
+#include "cameraunlock/input/deferred_actions.h"
 #include "cameraunlock/protocol/udp_receiver.h"
 #include "cameraunlock/time/frame_clock.h"
 #include "cameraunlock/tracking/head_tracking_session.h"
@@ -35,8 +36,11 @@ public:
     bool IsReceiving() const { return m_receiver.IsReceiving(); }
 
     void ToggleEnabled();
-    // Each returns the state it switched to.
+    // Returns the mode after the one SampleFrame last applied. SampleFrame
+    // applies it on the render thread, because a mode change resets position
+    // interpolation and smoothing state that Update is reading there.
     cameraunlock::TrackingMode CycleTrackingMode();
+    // Returns the state it switched to.
     bool ToggleYawMode();
 
     bool IsWorldSpaceYaw() const { return m_worldSpaceYaw.load(std::memory_order_relaxed); }
@@ -47,6 +51,8 @@ private:
     // Logs which smoothing parameter is in force when the session switches
     // between a local and a remote tracker. The session does the selection.
     void LogConnectionChange();
+
+    void ApplyRequestedMode();
 
     // True while the newest packet is younger than Config::data_freshness_ms. The
     // core receiver's own IsReceiving() is fixed at 500ms, which is where the
@@ -69,6 +75,9 @@ private:
     // Tri-state: false/false is indistinguishable from a local tracker, so a
     // plain equality check never reports the (common) local case at all.
     bool m_remoteConnectionKnown = false;
+
+    std::atomic<cameraunlock::TrackingMode> m_desiredMode{cameraunlock::TrackingMode::RotationAndPosition};
+    cameraunlock::input::DeferredAction m_modeChange;
 
     std::atomic<bool> m_enabled{false};
     std::atomic<bool> m_worldSpaceYaw{true};
