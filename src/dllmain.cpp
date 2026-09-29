@@ -206,7 +206,7 @@ unsigned __stdcall InitThread(void*) {
 
 }  // namespace
 
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID) {
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
     switch (reason) {
         case DLL_PROCESS_ATTACH:
             DisableThreadLibraryCalls(hModule);
@@ -215,6 +215,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID) {
             break;
 
         case DLL_PROCESS_DETACH:
+            // Non-null reserved means the process is exiting. Its other threads
+            // were already killed wherever they stood, the UDP or hotkey thread
+            // possibly inside Log::Line holding the log mutex, so Close() would
+            // hang the game's exit. Every log line is already written through,
+            // and the OS takes back the rest.
+            if (reserved) break;
             InterlockedExchange(&g_shutdown, 1);
             if (g_initThreadHandle) {
                 WaitForSingleObject(g_initThreadHandle, 2000);
