@@ -40,6 +40,12 @@ EngMat4 g_lightTransform{};
 bool g_lightActive = false;
 bool g_reportedFirstLight = false;
 
+// The hit-marker shader, looked up once a frame. UI::Render::setup looks the
+// widget's shader up by name as the UI is rebuilt each frame, so comparing
+// against this frame's lookup matches it without hashing the name for every
+// widget drawn.
+void* g_damageTickShader = nullptr;
+
 // True while the engine is rendering the player's actual view. Off-screen
 // passes (minimap, environment map, model preview, UI viewports) swap camera1
 // to their own physent and must render untracked. The halo pass keeps camera1
@@ -66,9 +72,10 @@ float ZoomFactor() {
     const bool readable = std::isfinite(currentFov) && currentFov > 0 && currentFov < 180 &&
                           baseFov > 0 && baseFov < 180;
     static bool reported = false;
+    static bool reportedUnreadable = false;
     if (!readable) {
-        if (!reported) {
-            reported = true;
+        if (!reportedUnreadable) {
+            reportedUnreadable = true;
             Log::Line("Zoom compensation off: unreadable FOV curfov=%.4f base=%.4f", currentFov, baseFov);
         }
         return 1.0f;
@@ -122,6 +129,7 @@ void HookedRecomputeCamera() {
 
     g_headTransform = BuildHeadTransform(pose, g_cleanCamMatrix, g_tracking->IsWorldSpaceYaw());
     g_headActive = true;
+    g_damageTickShader = g_symbols->lookupShader("shdr_gameui_damagetick");
 
     const cameraunlock::effects::HeadFollowLightSettings& light = g_tracking->Light();
     g_lightActive = light.follows_head;
@@ -186,7 +194,7 @@ void HookedDrawUiRender(void* widget, float x, float y) {
     if (g_headActive && HasGameplayInput()) {
         const auto shader = *reinterpret_cast<void**>(
             static_cast<unsigned char*>(widget) + g_symbols->renderShaderOffset);
-        if (shader && shader == g_symbols->lookupShader("shdr_gameui_damagetick")) {
+        if (shader && shader == g_damageTickShader) {
             float aimX = 0.0f, aimY = 0.0f;
             if (!ProjectToCursor(*g_symbols->camprojmatrix, *g_symbols->worldpos, aimX, aimY)) return;
             // The visor shader warps this layer after UI rendering. Its cursor
