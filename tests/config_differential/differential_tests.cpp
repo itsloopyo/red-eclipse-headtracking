@@ -446,7 +446,6 @@ struct Startup {
     uint32_t limit_y_down = 0;
     uint32_t limit_z = 0;
     uint32_t limit_z_back = 0;
-    bool light_follows_head = false;
     uint32_t light_multiplier = 0;
     std::vector<Registration> hotkeys;
 };
@@ -520,7 +519,6 @@ Startup FromImport(const std::string& name, const legacy::Config& c, const std::
     s.limit_y_down = s.limit_y;
     s.limit_z = LimitAfterN2N4(name, c.pos_limit_z, defaults.position.limit_z, "LimitZ", dropped);
     s.limit_z_back = LimitAfterN2N4(name, c.pos_limit_z_back, defaults.position.limit_z_back, "LimitZBack", dropped);
-    s.light_follows_head = defaults.light.follows_head;
     s.light_multiplier = Bits(defaults.light.multiplier);
     const bool toggleKept = KeyAfterN1(name, c.vk_toggle, "Toggle", dropped);
     const bool cycleKept = KeyAfterN1(name, c.vk_cycle_mode, "CycleMode", dropped);
@@ -548,7 +546,6 @@ Startup FromMigration(const Config& c) {
     s.limit_y_down = Bits(c.position.limit_y_down);
     s.limit_z = Bits(c.position.limit_z);
     s.limit_z_back = Bits(c.position.limit_z_back);
-    s.light_follows_head = c.light.follows_head;
     s.light_multiplier = Bits(c.light.multiplier);
     const std::pair<Action, const std::string*> lists[] = {
         {Action::Toggle, &c.toggle_key_name},
@@ -594,7 +591,7 @@ std::set<Concept> ExpectedFollows(const legacy::Config& c) {
     add(c.vk_cycle_mode == s.vk_cycle_mode && c.chord_cycle_mode == s.chord_cycle_mode,
         {Concept::CycleTrackingModeKey});
     add(c.vk_yaw_mode == s.vk_yaw_mode && c.chord_yaw_mode == s.chord_yaw_mode, {Concept::YawModeKey});
-    add(true, {Concept::LightFollowsHead, Concept::LightMultiplier});
+    add(true, {Concept::LightMultiplier});
     return out;
 }
 
@@ -626,7 +623,6 @@ Startup TakeDefaults(Startup s, const Startup& defaults, const std::set<Concept>
             case Concept::ToggleKey: hotkeys(Action::Toggle); break;
             case Concept::CycleTrackingModeKey: hotkeys(Action::CycleMode); break;
             case Concept::YawModeKey: hotkeys(Action::YawMode); break;
-            case Concept::LightFollowsHead: s.light_follows_head = defaults.light_follows_head; break;
             case Concept::LightMultiplier: s.light_multiplier = defaults.light_multiplier; break;
             default: throw std::logic_error("ExpectedFollows names a concept TakeDefaults does not know");
         }
@@ -651,7 +647,6 @@ std::vector<std::string> StartupDifferences(const Startup& a, const Startup& b) 
     SAME(limit_y_down);
     SAME(limit_z);
     SAME(limit_z_back);
-    SAME(light_follows_head);
     SAME(light_multiplier);
 #undef SAME
     if (a.hotkeys != b.hotkeys) out.push_back("hotkeys " + Describe(a.hotkeys) + " against " + Describe(b.hotkeys));
@@ -968,7 +963,6 @@ void WriteAlteredDefaults() {
         {"ToggleKey=End, Ctrl+Shift+Y", "ToggleKey=F1, Ctrl+Shift+Y"},
         {"CycleTrackingModeKey=PageUp, Ctrl+Shift+G", "CycleTrackingModeKey=F2, Ctrl+Shift+G"},
         {"YawModeKey=PageDown, Ctrl+Shift+H", "YawModeKey=F3, Ctrl+Shift+H"},
-        {"LightFollowsHead=true", "LightFollowsHead=false"},
         {"LightMultiplier=1.5", "LightMultiplier=1.0"},
     };
     for (const auto& [from, to] : changes) {
@@ -1056,7 +1050,7 @@ int main() {
             if (created.status != cfg::ConfigLoadStatus::Created) Fail("Defaults.ini", "a fresh load is not Created");
             *startup = FromMigration(created.config);
         }
-        if (StartupDifferences(g_builtinStartup, g_alteredStartup).size() != 15) {
+        if (StartupDifferences(g_builtinStartup, g_alteredStartup).size() != 14) {
             Fail("Defaults.ini", "the changed Defaults.ini does not change every row this game reads");
         }
 

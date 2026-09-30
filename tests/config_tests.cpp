@@ -150,6 +150,21 @@ void TestLegacyDefaultsMapToTheDefaults() {
           "the old hotkeys and their chord switches become the fleet's key lists");
 }
 
+void TestRetiredLightSwitchIsIgnored() {
+    const Scratch s("config-retired-light");
+    const std::wstring path = (s.game / kConfigFileName).wstring();
+    for (const char* follows : {"true", "false"}) {
+        for (const float multiplier : {0.0f, 1.0f, 1.5f}) {
+            WriteBytes(path, std::string("[Light]\r\nLightFollowsHead=") + follows +
+                                 "\r\nLightMultiplier=" + std::to_string(multiplier) + "\r\n");
+            const auto loaded = cfg::ConfigOwner<Config>(s.Options()).Load();
+            Check(loaded.config.light.multiplier == multiplier,
+                  std::string("retired LightFollowsHead=") + follows + " leaves LightMultiplier=" +
+                      std::to_string(multiplier) + " unchanged");
+        }
+    }
+}
+
 std::vector<std::string> Lines(const std::string& bytes) {
     std::vector<std::string> lines;
     size_t start = 0;
@@ -324,6 +339,7 @@ int main(int argc, char** argv) {
         TestCommittedConfigIsRendered();
         TestLegacyDefaultsMapToTheDefaults();
         TestFirstStartCreatesTheCommittedFile();
+        TestRetiredLightSwitchIsIgnored();
         TestTogglesSave();
         TestShippedPoseShapingIsFolded();
     } catch (const std::exception& e) {

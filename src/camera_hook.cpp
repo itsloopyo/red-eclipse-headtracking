@@ -132,7 +132,7 @@ void HookedRecomputeCamera() {
     g_damageTickShader = g_symbols->lookupShader("shdr_gameui_damagetick");
 
     const cameraunlock::effects::HeadFollowLightSettings& light = g_tracking->Light();
-    g_lightActive = light.follows_head;
+    g_lightActive = light.multiplier != 0.0f;
     if (g_lightActive) {
         // Euler scaling, because the camera takes the pose as Euler angles too.
         const cameraunlock::effects::HeadEuler scaled = cameraunlock::effects::ScaleHeadEuler(
