@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.0] - 2026-09-30
+
+### Changed
+
+- look the hit-marker shader up once a frame rather than per widget, and log the zoom terms even after an unreadable first frame
+
+### Fixed
+
+- apply a tracking mode change on the render thread instead of mid-frame from the hotkey thread
+- skip cleanup at process exit so a thread killed holding the log lock cannot hang the game's quit
+
 ## [0.4.0] - 2026-09-28
 
 ### Added

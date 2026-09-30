@@ -21,7 +21,7 @@
 namespace {
 
 constexpr const char* kModName = "RedEclipseHeadTracking";
-constexpr const char* kModVersion = "0.4.0";
+constexpr const char* kModVersion = "0.5.0";
 constexpr const char* kGameExe = "redeclipse.exe";
 constexpr int kInitMaxWaitMs = 30000;
 constexpr int kInitPollMs = 100;
